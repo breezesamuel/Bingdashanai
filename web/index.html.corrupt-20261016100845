@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>涓欏ぇ灞盇I 路 Agent 椹鹃┒鑸?/title>
+<link rel="stylesheet" href="app.css">
+<!-- PWA锛氳 iOS / Android / 楦胯挋 / 妗岄潰娴忚鍣ㄩ兘"鍙畨瑁?涓虹嫭绔嬪簲鐢紙鍏嶄笂鏋躲€佸悓涓€濂楄祫浜э級 -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#107a5a">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/icons/favicon-64.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="涓欏ぇ灞盇I">
+</head>
+<body data-theme="emerald">
+<!-- 椤堕儴鐘舵€佹潯 -->
+<header class="superbar">
+  <button class="sb-burger" id="navBurger" title="灞曞紑/鏀惰捣瀵艰埅" aria-label="灞曞紑鎴栨敹璧峰乏渚у鑸?>鈽?/button>
+  <div class="brand" id="brandBtn">
+    <span class="brand-mark">涓?/span>
+    <div class="brand-txt">
+      <b>涓欏ぇ灞盇I</b>
+      <span>Agent 椹鹃┒鑸?路 v<span id="verBox">鈥?/span></span>
+    </div>
+  </div>
+  <div class="sb-stats" id="sbStats"></div>
+  <div id="themeDots" class="theme-dots sb-item"></div>
+  <!-- 椤舵爮甯搁┗璇█鍒囨崲鍣細璁?褰撳墠璇█"涓€鐪煎彲瑙侊紝涓嶇敤杩涜缃〉鎵?-->
+  <div class="sb-lang" style="display:flex;align-items:center;gap:6px">
+    <span aria-hidden="true" style="opacity:.75">馃寪</span>
+    <select class="ipt" data-lang-select title="鐣岄潰璇█ / Language / 丕賱賱睾丞"
+            aria-label="鐣岄潰璇█ / Language" style="max-width:130px;padding:2px 6px"></select>
+  </div>
+  <div class="sb-conn"><span id="connDot" class="dot"></span><span id="connTxt">寮曟搸鎺㈡祴涓€?/span></div>
+</header>
+
+<div class="app">
+  <!-- 宸︽爮鍏夋爣闈犺繎鏄剧幇 -->
+  <div id="navPeek" title="瀵艰埅"></div>
+  <!-- 渚ц竟瀵艰埅 -->
+  <aside class="nav" id="nav">
+    <div class="nav-group">
+      <a class="nav-item active" data-tab="chat"><span class="n-ico">馃挰</span><span data-i18n="nav.chat">鏅鸿兘瀵硅瘽</span></a>
+      <a class="nav-item" data-tab="decision"><span class="n-ico">馃Л</span><span data-i18n="nav.decision">鍐崇瓥涓績</span></a>
+      <a class="nav-item" data-tab="org"><span class="n-ico">馃</span><span data-i18n="nav.org">缁勭粐澶ц剳</span></a>
+      <a class="nav-item" data-tab="project"><span class="n-ico">馃洡锔?/span><span data-i18n="nav.project">椤圭洰绠＄悊</span></a>
+      <a class="nav-item" data-tab="tasks"><span class="n-ico">鉁?/span><span data-i18n="nav.tasks">浠诲姟鍙?/span></a>
+      <a class="nav-item" data-tab="audit"><span class="n-ico">馃摐</span><span data-i18n="nav.audit">瀹¤鏃ュ織</span></a>
+      <a class="nav-item" data-tab="setting"><span class="n-ico">鈿欙笍</span><span data-i18n="nav.setting">绯荤粺璁剧疆</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-caption" role="button" tabindex="0" aria-expanded="true"><span>澶ц剳瀹為獙瀹?/span><span class="cap-arrow">鈻?/span></div>
+      <a class="nav-item" data-tab="studiohub"><span class="n-ico">馃幀</span><span data-i18n="nav.studiohub">鍒涗綔宸ュ潑</span></a>
+      <a class="nav-item" data-tab="brain"><span class="n-ico">馃К</span><span data-i18n="nav.brain">璁板繂 路 瀛︿範 路 杩涘寲</span></a>
+      <a class="nav-item" data-tab="skills"><span class="n-ico">馃洜锔?/span><span data-i18n="nav.skills">鎶€鑳藉啗姊板簱</span></a>
+      <a class="nav-item" data-tab="agents"><span class="n-ico">馃帥锔?/span><span data-i18n="nav.agents">Agent 绠＄悊涓績</span></a>
+      <a class="nav-item" data-tab="auto"><span class="n-ico">馃</span><span data-i18n="nav.auto">24h 鑷富杩愯惀</span></a>
+      <a class="nav-item" data-tab="cmd"><span class="n-ico">馃帠锔?/span><span data-i18n="nav.cmd">浣滄垬鎸囨尌濉?/span></a>
+      <a class="nav-item" data-tab="guard"><span class="n-ico">馃暞锔?/span><span data-i18n="nav.guard">鍚屽湪瀹堟姢</span></a>
+      <a class="nav-item" data-tab="warroom"><span class="n-ico">馃椇锔?/span><span data-i18n="nav.warroom">鎴樻儏瀹?/span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-caption" role="button" tabindex="0" aria-expanded="true"><span>鍟嗕笟涓灑</span><span class="cap-arrow">鈻?/span></div>
+      <a class="nav-item" data-tab="cashier"><span class="n-ico">馃挵</span><span data-i18n="nav.cashier">鏀堕摱鍙?/span></a>
+      <a class="nav-item" data-tab="gtm"><span class="n-ico">馃幆</span><span data-i18n="nav.gtm">鑾峰甯傚満</span></a>
+      <a class="nav-item" data-tab="partner"><span class="n-ico">馃</span><span data-i18n="nav.partner">鍚堜紮浜哄垎閿€</span></a>
+      <a class="nav-item" data-tab="outreach"><span class="n-ico">馃摛</span><span data-i18n="nav.outreach">澶栧彂瑙﹁揪</span></a>
+      <a class="nav-item" data-tab="convert"><span class="n-ico">馃攧</span><span data-i18n="nav.convert">绾跨储杞寲</span></a>
+      <a class="nav-item" data-tab="commercial-loop"><span class="n-ico">馃攧</span><span data-i18n="nav.commercial-loop">鍟嗕笟闂幆</span></a>
+      <a class="nav-item" data-tab="subs"><span class="n-ico">馃挸</span><span data-i18n="nav.subs">璁㈤槄 路 鏀惰垂澧?/span></a>
+      <a class="nav-item" data-tab="rank"><span class="n-ico">馃弳</span><span data-i18n="nav.rank">鎺掕姒?/span></a>
+      <a class="nav-item" data-tab="watch"><span class="n-ico">馃洶锔?/span><span data-i18n="nav.watch">24h 鐩戞帶鍛婅</span></a>
+      <a class="nav-item" data-tab="kpi"><span class="n-ico">馃幆</span><span data-i18n="nav.kpi">鐩爣浠诲姟</span></a>
+      <a class="nav-item" data-tab="funnel"><span class="n-ico">馃搳</span><span data-i18n="nav.funnel">婕忔枟鐪嬫澘</span></a>
+      <a class="nav-item" data-tab="capmap"><span class="n-ico">馃Л</span><span data-i18n="nav.capmap">鑳藉姏鍏ㄦ櫙</span></a>
+      <a class="nav-item" data-tab="compliance"><span class="n-ico">馃洝锔?/span><span data-i18n="nav.compliance">鍚堣涓績</span></a>
+    </div>
+    <div class="nav-foot">
+      <div class="mini-card">
+        <div class="mini-title">鑷€傚簲閫氶亾</div>
+        <div class="mini-val" id="recProvider">鈥?/div>
+        <div class="mini-sub">鎴愬姛鐜囨渶浼?+ 寤舵椂鏈€浼?/div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 涓诲尯 -->
+  <main class="main">
+
+    <!-- ===== 鏅鸿兘瀵硅瘽 ===== -->
+    <section class="tab-pane" id="tab-chat">
+      <div class="pane-head">
+        <div class="pane-title">鏅鸿兘瀵硅瘽 <span class="tag" id="engineTag">brain-command</span></div>
+        <div class="toolbar" id="chatToolbar">
+          <label><span data-i18n="chat.model">妯″瀷</span> <select id="providerSel"></select></label>
+          <label><span data-i18n="chat.output">杈撳嚭</span>
+            <select id="modeSel"><option value="text" data-i18n="chat.text">鏂囨湰</option><option value="voice" data-i18n="chat.voice">璇煶鏈楄</option></select>
+          </label>
+          <label class="check-inline"><input type="checkbox" id="depthChk"><span data-i18n="chat.deep">娣卞害鎬濊€?/span></label>
+          <button class="btn ghost" id="exportChatBtn" data-i18n-title="chat.export" title="瀵煎嚭浼氳瘽 TXT">猬?瀵煎嚭</button>
+          <button class="btn ghost" id="micBtn" data-i18n-title="chat.mic" title="璇煶杈撳叆">馃帳</button>
+          <button class="btn ghost" id="camBtn" data-i18n-title="chat.cam" title="鎵撳紑鎽勫儚澶?>馃摲</button>
+          <button class="btn ghost danger" id="clearBtn" data-i18n-title="chat.clear" title="娓呯┖浼氳瘽">馃Ч</button>
+          <span class="lang-hint" id="langHint"></span>
+        </div>
+      </div>
+      <div class="chat-stage">
+        <!-- 鍔ㄧ敾 AI 闄即瑙掕壊锛氱函 CSS 琛ㄦ儏/鑱嗗惉/鎬濊€?璇磋瘽 -->
+        <div class="buddy" id="buddy" data-state="idle">
+          <div class="buddy-head">
+            <div class="buddy-blob">
+              <div class="buddy-ear l"></div><div class="buddy-ear r"></div>
+              <div class="buddy-antenna"><i></i></div>
+              <div class="buddy-eye l"></div><div class="buddy-eye r"></div>
+              <div class="buddy-mouth"></div>
+              <div class="buddy-cheek l"></div><div class="buddy-cheek r"></div>
+            </div>
+          </div>
+          <div class="buddy-note" id="buddyNote">鎴戞槸涓欏ぇ灞憋紝闅忔椂寰呭懡 馃憢</div>
+          <div class="buddy-chips" id="buddyChips"></div>
+        </div>
+        <div class="chat-list" id="chatList"></div>
+        <div class="cam-wrap" id="camWrap" hidden>
+          <video id="camVideo" autoplay muted playsinline></video>
+          <span class="cam-close" id="camClose">鉁?/span>
+        </div>
+        <div class="composer">
+          <div class="dropzone" id="dropzone">
+            <div class="dz-pills" id="dzPills"></div>
+            <textarea id="chatInput" rows="2" placeholder="杈撳叆浣犵殑闂鈥?锛? 寮€澶磋繘鍏ュ懡浠わ紝濡?/help 路 /remember 鍐呭锛?></textarea>
+            <div class="composer-right">
+              <span class="dz-hint" id="dzHint">鎷栧叆 PDF / Word / TXT / PPT / JPG / PNG</span>
+              <button class="btn primary" id="sendBtn">鍙戦€?鈬?/button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 鍐崇瓥涓績 ===== -->
+<section class="tab-pane" id="tab-decision" hidden>
+      <div class="pane-head">
+        <div class="pane-title">鍐崇瓥涓績 <span class="tag blue">50+ 鍐崇瓥鏂规硶</span></div>
+        <button class="btn ghost" onclick="exportCsv('decisions')">瀵煎嚭 CSV</button>
+      </div>
+      <!-- 绗?3 鏉★細閫夊畾鍐崇瓥鏂瑰悜 鈫?绔嬪埢灞曞紑鎴愭寚鍚戞€т换鍔＄洰鏍囷紝骞剁壍寮曞璇?-->
+      <div class="panel" id="dfocusPanel">
+        <div class="panel-title">馃幆 褰撳墠鍐崇瓥鐒︾偣锛堥€夊畾鏂瑰悜鍚庤嚜鍔ㄦ淳鍙戞寚鍚戞€т换鍔★紝鏅鸿兘瀵硅瘽浼氭湞杩欎釜鏂瑰悜鍥炵瓟锛?/div>
+        <div id="dfocusBody"><div class="text-muted" style="padding:6px 0">鍔犺浇涓€?/div></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+          <select id="dfDomain" class="ipt" style="max-width:150px"></select>
+          <input id="dfTopic" class="ipt" style="flex:1;min-width:180px" placeholder="杩欐瑕佸仛鐨勫喅绛栨槸浠€涔堬紵锛堜緥锛氬搴︾嚎绱㈣浆鍖栵級">
+          <button class="btn primary" id="dfSetBtn">璁句负鐒︾偣骞舵淳鍙戜换鍔?/button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">鍐崇瓥妗嗘灦搴?<span class="sub" id="fwCount"></span></div>
+        <div class="fw-apply">
+          <select id="fwCat" title="鎸夐鍩熺瓫閫夋鏋?></select>
+          <select id="fwSel"></select>
+          <input id="fwTopic" placeholder="瑕佸喅绛栫殑涓婚锛屽锛氭槑骞存槸鍚﹁繘鍏ヤ笢鍗椾簹甯傚満鈥?>
+          <button class="btn primary" id="fwGo">搴旂敤妗嗘灦</button>
+        </div>
+        <div class="fw-suggest" id="fwSuggest" hidden>閫変竴涓鏋讹紝杩欓噷浼氱粰鍑哄彲鐩存帴濂楃敤鐨勬彁闂竻鍗曘€?/div>
+        <div class="fw-result" id="fwResult" hidden>搴旂敤鍚庯紝杩欓噷浼氭樉绀鸿妗嗘灦鐨勫垎鏋愮粨鏋溿€?/div>
+        <div class="row" style="gap:8px;margin-top:10px" id="fwProjectBtnWrap" hidden>
+          <button class="btn primary" id="fwProjectBtn">馃殌 涓€閿珛椤癸細鎶婂喅绛栫粨璁哄彉鎴愰」鐩紙閲岀▼纰?鍐崇瓥闂锛屼换鍔?鎸囧悜鎬т换鍔★紝鑷姩娲惧伐锛?/button>
+          <span class="sub" id="fwProjectHint"></span>
+        </div>
+        <div class="fw-grid" id="fwGrid"></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-v" id="decTotal">0</div><div class="stat-l">鍐崇瓥鎬绘暟</div></div>
+        <div class="stat"><div class="stat-v" id="decToday">0</div><div class="stat-l">浠婃棩鏂板</div></div>
+        <div class="stat"><div class="stat-v" id="decAuto">ON</div><div class="stat-l">瑙嗚鎰熺煡</div></div>
+      </div>
+      <div class="panel"><div class="panel-title">杩?7 鏃ュ喅绛栬秼鍔?/div><div class="dec-trend" id="decTrend"></div></div>
+      <div class="board auto-scroll" id="decBoard"></div>
+      <form class="inline-form" id="decForm">
+        <input id="decQ" placeholder="鐧昏涓€椤瑰喅绛栭棶棰樷€? required>
+        <input id="decA" placeholder="鍐崇瓥缁撹锛堝彲鐣欑┖锛屽皢鐩存帴鍏ユ祦锛?>
+        <button class="btn primary" type="submit">鐧昏鍐崇瓥</button>
+      </form>
+    </section>
+
+    <!-- ===== 缁勭粐澶ц剳 ===== -->
+    <section class="tab-pane" id="tab-org" hidden>
+      <div class="pane-head">
+        <div class="pane-title">缁勭粐澶ц剳 <span class="tag blue">鑷姩涓嬫粦</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" id="evolveSkillBtn">鈿?鍛樺伐鎶€鑳借繘鍖?/button>
+          <button class="btn ghost" id="bulkBtn">馃鈥嶐煉?鎵归噺 AI 鍛樺伐</button>
+          <button class="btn ghost" id="oneBtn">馃殌 涓€浜哄叕鍙?/button>
+          <button class="btn ghost" onclick="refreshOrg()">鍒锋柊蹇冭烦</button>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-v" id="orgHead">0</div><div class="stat-l">鍦ㄧ紪鍛樺伐</div></div>
+        <div class="stat"><div class="stat-v" id="orgActive">0</div><div class="stat-l">鍦ㄥ矖</div></div>
+        <div class="stat"><div class="stat-v" id="orgProj">0</div><div class="stat-l">鍦ㄨ窇椤圭洰</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">鍛樺伐缂栨垚 <span class="sub">鐐归€夊崱鐗囧垏鎹?鍦ㄥ矖/绂荤嚎</span></div>
+        <div class="staff-grid auto-scroll" id="staffGrid"></div>
+      </div>
+      <form class="inline-form" id="staffForm">
+        <input id="staffName" placeholder="鏂板憳宸ュ鍚嶁€? required>
+        <input id="staffRole" placeholder="瑙掕壊锛堝锛氱畻娉曞伐绋嬪笀锛?>
+        <input id="staffSkill" placeholder="鎶€鑳界粍锛堥€楀彿鍒嗛殧锛屽锛歅ython,React锛?>
+        <button class="btn primary" type="submit">+ 鑷缓鍛樺伐</button>
+      </form>
+      <div class="panel">
+        <div class="panel-title">浜烘墠閰嶇疆 路 浣犳潵鑷€?<span class="sub">AI 寤鸿浠呬緵鍙傝€冿紝鏁伴噺瀹屽叏鐢变綘瀹?/span></div>
+        <div class="tc-ctrl row" style="gap:10px;margin-bottom:8px">
+          <label class="check-inline"><input type="checkbox" id="tcName"> 鍐欏疄濮撳悕锛堜笉鍐欑敤琛屼笟路宀椾綅鍛藉悕锛?/label>
+          <span style="flex:1"></span>
+          <button class="btn ghost" id="tcSuggestBtn">鉁?鑾峰彇 AI 寤鸿閰嶇疆</button>
+        </div>
+        <div class="tc-tools row" style="gap:8px;margin-bottom:8px">
+          <select id="tcIndustry" style="min-width:170px"><option value="all">鍏ㄩ儴琛屼笟</option></select>
+          <input type="number" id="tcCount" min="0" max="20" value="1" style="width:64px" title="姣忎釜宀椾綅浜烘暟">
+          <button class="btn ghost" id="tcAddRow">锛?鍔犲叆閰嶇疆</button>
+          <span class="sub">锛堟瘡浜?鈮?20锛?/span>
+        </div>
+        <div class="tc-config" id="tcConfig">鎵归噺鐢熸垚鍓嶏紝鍏堝湪杩欓噷閰嶇疆瑙勫垯銆?/div>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button class="btn primary" id="tcImportBtn">鉁?鎸夋垜鐨勯厤缃鍏?/button>
+        </div>
+        <div class="sub" id="tcNote">娴佺▼锛氱偣銆岃幏鍙?AI 寤鸿閰嶇疆銆嶅緱鍒伴粯璁ゆ柟妗?鈫?淇敼琛屼笟/宀椾綅/鏁伴噺鍒颁綘婊℃剰 鈫?涓€閿鍏ユ垚鐪熷疄鍛樺伐銆?/div>
+      </div>
+    </section>
+
+    <!-- ===== 椤圭洰绠＄悊 ===== -->
+    <section class="tab-pane" id="tab-project" hidden>
+      <div class="pane-head">
+        <div class="pane-title">椤圭洰绠＄悊 <span class="tag blue">鑷姩涓嬫粦 路 澶氶」鐩苟琛?/span></div>
+      </div>
+      <div class="row" id="projSummary" style="gap:6px;margin:8px 0;flex-wrap:wrap"></div>
+      <div class="proj-grid auto-scroll" id="projGrid"></div>
+      <form class="inline-form" id="projForm">
+        <input id="projName" placeholder="鏂伴」鐩悕绉扳€? required>
+        <input id="projDesc" placeholder="涓€鍙ヨ瘽鐩爣">
+        <select id="projStatus"><option value="running">杩涜涓?/option><option value="paused">鏆傚仠</option><option value="done">宸插畬鎴?/option></select>
+        <button class="btn primary" type="submit">+ 鍚姩椤圭洰</button>
+      </form>
+    </section>
+
+    <!-- ===== 浠诲姟鍙?===== -->
+    <section class="tab-pane" id="tab-tasks" hidden>
+      <div class="pane-head">
+        <div class="pane-title">浠诲姟鍙?<span class="tag blue">鑷姩涓嬫粦 路 鍐崇瓥/椤圭洰鍙竴閿浆浠诲姟</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" onclick="claimAllPending()">璁ら鏈垎閰嶄换鍔?/button>
+          <button class="btn ghost" onclick="refreshTasks()">鍒锋柊</button>
+        </div>
+      </div>
+      <div class="stat-row" id="taskStats"></div>
+      <div class="src-summary" id="taskBySource"></div>
+      <div class="task-list auto-scroll" id="taskList"></div>
+      <form class="inline-form" id="taskForm">
+        <input id="taskTitle" placeholder="瑕佸仛浠€涔堚€? required>
+        <input id="taskDue" placeholder="鎴锛堝锛氬懆鍥?18:00锛?>
+        <button class="btn primary" type="submit">+ 鏂板缓浠诲姟</button>
+      </form>
+    </section>
+
+    <!-- ===== 椤圭洰鍗＄墖鍖猴紙澶氶」鐩苟琛岋紝鑷姩涓嬫粦锛?==== -->
+
+    <!-- ===== 瀹¤鏃ュ織 ===== -->
+    <section class="tab-pane" id="tab-audit" hidden>
+      <div class="pane-head">
+        <div class="pane-title">瀹¤鏃ュ織 <span class="tag blue">鑷姩涓嬫粦</span></div>
+        <div class="toolbar">
+          <input id="auditQ" placeholder="鎼滅储 鍔ㄤ綔/鏄庣粏鈥? style="width:200px">
+          <select id="auditFilter">
+            <option value="">鍏ㄩ儴鍔ㄤ綔</option>
+          </select>
+          <button class="btn ghost" onclick="exportCsv('audit')">瀵煎嚭 CSV</button>
+        </div>
+      </div>
+      <div class="audit-box auto-scroll">
+        <table class="table">
+          <thead><tr><th>鏃堕棿</th><th>鍔ㄤ綔</th><th>鏄庣粏</th></tr></thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 绯荤粺璁剧疆 ===== -->
+    <section class="tab-pane" id="tab-setting" hidden>
+      <div class="pane-head"><div class="pane-title" data-i18n="set.title">绯荤粺璁剧疆</div></div>
+      <div class="set-grid">
+        <!-- 绗?1 鏉★細璇█璁剧疆蹇呴』鍦ㄨ繖閲岋紝涓斿垏鎹㈠悗鏁翠釜绯荤粺绔嬪嵆璺熼殢 -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.language">鐣岄潰璇█</div>
+          <label class="row" style="gap:10px;align-items:center">
+            <select id="langSel" class="ipt" style="max-width:180px"></select>
+            <span class="sub" id="langNote"></span>
+          </label>
+          <div class="text-muted" data-i18n="set.languageDesc">閫夋嫨鍚庢暣涓郴缁熺珛鍗冲垏鎹紝鎵€鏈夐〉闈€佹寜閽€佹彁绀哄悓姝ョ敓鏁堬紝涓嶄細鍑虹幇璇█娣锋潅銆?/div>
+        </div>
+        <div class="card">
+          <div class="card-t" data-i18n="set.theme">涓婚閰嶈壊</div>
+          <div class="theme-grid" id="themeGrid"></div>
+          <div class="text-muted" data-i18n="set.themeDesc">鍏ㄥ眬閰嶈壊鍗虫椂鍒囨崲锛屽苟鑷姩鍐欏叆澶ц剳璁板繂銆?/div>
+        </div>
+        <!-- 绗?7 鏉★細鍚勭璀﹀憡闊筹紝鑰屼笉鍙槸"涓€涓紑鍏? -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.sound">璀﹀憡闊?/div>
+          <label class="switch-row"><span data-i18n="set.soundOn">鍚敤璀﹀憡闊?/span><input type="checkbox" id="soundOn" checked><span class="sw"></span></label>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+            <select id="soundKind" class="ipt" style="max-width:150px"></select>
+            <select id="soundTone" class="ipt" style="max-width:130px"></select>
+            <button class="btn ghost" id="testSoundBtn" data-i18n="set.soundTest">馃敂 璇曞惉</button>
+            <span class="sub" id="soundNote"></span>
+          </div>
+          <div class="text-muted" data-i18n="set.soundDesc">涓嶅悓浜嬩欢浣跨敤涓嶅悓鎻愮ず闊筹紝閬垮厤鎵€鏈夋彁閱掗兘涓€涓牱銆?/div>
+        </div>
+        <!-- 绗?16 鏉★細鐩爣浠诲姟 = 鎵€鏈夊姛鑳芥ā鍧楃▼搴忕殑鏈€鏍稿績鎸囧鐩爣锛屽彲娣诲姞澶氭潯 -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.goal">鐩爣浠诲姟</div>
+          <div class="text-muted" data-i18n="set.goalDesc">鎵€鏈夊姛鑳芥ā鍧楃▼搴忕殑鏈€鏍稿績鎸囧鐩爣锛屽彲娣诲姞澶氭潯銆?/div>
+          <div id="goalList" class="goal-list"></div>
+          <!-- 杩借刀鑺傚锛氱洰鏍囦笉钀藉埌"浠婂ぉ璇ュ仛澶氬皯"灏卞彧鏄涓婄殑涓€鍙ヨ瘽 -->
+          <div id="goalPace" class="goal-pace"></div>
+          <!-- 銆愪负浠€涔堝師鏉ヨ繖琛屼笉鍙?娣诲姞绐楀彛"銆戦渶姹傚師鏂囪鐨勬槸"鎸囧鐩爣鐨勬坊鍔犵獥鍙ｅ疄鐜板鏍峰寲"锛?
+               浣嗗師鏉ュ彧鏈夋爣棰?+ 鐩爣鍊间袱涓锛宲eriod 鍐欐 P6M銆佸崟浣嶅啓姝?CNY鈥斺€?
+               浜庢槸鍔犱笁鏉＄洰鏍囧叏鏄?鍗婂勾 / 鍏冮挶"锛屽鏍峰寲鏍规湰鍋氫笉鍒般€傜幇鍦ㄦ妸鍗曚綅涓?
+               鍛ㄦ湡鏄惧紡浜ょ粰鐢ㄦ埛閫夛紝钀ユ敹/瀹㈡埛鏁?鍛ㄦ湡鏁?浜や粯澶╂暟鎵嶆槸涓嶅悓鐨勭洰鏍囩被鍨嬨€?-->
+          <div class="row" style="gap:8px;margin-top:8px">
+            <input id="goalInp" class="ipt" style="flex:1;min-width:140px" data-i18n-ph="goal.ph" placeholder="渚嬶細鍗婂勾钀ユ敹 1000 涓?>
+            <input id="goalAmtInp" class="ipt" style="max-width:110px" placeholder="鐩爣鍊?>
+            <select id="goalUnitSel" class="ipt" style="max-width:104px" title="鍗曚綅">
+              <option value="CNY">鍏?/option>
+              <option value="涓囧厓">涓囧厓</option>
+              <option value="瀹?>瀹讹紙瀹㈡埛鏁帮級</option>
+              <option value="鍗?>鍗?/option>
+              <option value="澶?>澶╋紙鍛ㄦ湡/浜や粯锛?/option>
+              <option value="浜?>浜?/option>
+              <option value="%">%</option>
+              <option value="绡?>绡?/option>
+            </select>
+            <select id="goalPeriodSel" class="ipt" style="max-width:104px" title="鍛ㄦ湡">
+              <option value="P1M">1 涓湀</option>
+              <option value="P3M">3 涓湀</option>
+              <option value="P6M" selected>6 涓湀</option>
+              <option value="P1Y">1 骞?/option>
+            </select>
+            <button class="btn primary" id="goalAddBtn" data-i18n="set.goalAdd">娣诲姞鐩爣</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-t" data-i18n="set.update">鑷垜鏇存柊</div>
+          <div class="row">
+            <span class="upd-ver"><span data-i18n="set.ver">褰撳墠鐗堟湰</span> v<span id="updVer">鈥?/span></span>
+            <button class="btn ghost" id="updBtn" data-i18n="set.updateCheck">妫€鏌ユ洿鏂?/button>
+          </div>
+          <div class="sub" id="updNote" data-i18n="set.updateDesc">鏈湴鏋勫缓銆傛鏌ユ渶鏂扮増鏈苟璇勪及鍗囩骇璺緞銆?/div>
+        </div>
+<div class="card" style="grid-column: span 2;">
+          <div class="card-t"><span data-i18n="set.keys">8 瀹舵ā鍨嬮€氶亾 路 瀵嗛挜绠＄悊</span> <button class="btn ghost small" id="keysBtn" data-i18n="set.keysSave">馃捑 淇濆瓨瀵嗛挜</button></div>
+          <table class="table" id="provTable">
+            <thead><tr><th data-i18n="common.name">鏈嶅姟鍟?/th><th data-i18n="set.keys">瀵嗛挜</th><th>榛樿妯″瀷</th><th data-i18n="common.status">鐘舵€?/th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <textarea class="keys-area" id="keysArea" placeholder="KEY=VALUE 姣忚涓€鏉★紝渚嬶細&#10;DEEPSEEK_API_KEY=sk-xxxxxxxx&#10;MOONSHOT_API_KEY=sk-yyyyyyyy"></textarea>
+          <div class="sub" id="keysNote">鏀寔 AGNES / ZHIPU / DEEPSEEK / SILICONFLOW / VOLCENGINE / MINIMAX / MOONSHOT / NVIDIA銆傛墦鍖呯増鍐欏叆鐢ㄦ埛绾у瘑閽ユ枃浠讹紝鏃犻渶鏀规簮鐮侊紱宸查厤缃€氶亾鑷姩鐐逛寒銆?/div>
+        </div>
+
+        <!-- ===== 瀹樻柟鍏嶈垂棰濆害閫氶亾锛堝悎瑙勩€屽厤璐?token銆嶏細鑱氬悎瀹樻柟鍏嶈垂 tier + 鍋ュ悍/閰嶉鎰熺煡杞崲锛?====
+             涓轰粈涔堣繖涓嶆槸"鐧藉珫 GitHub 涓婄殑鍏嶈垂 Key"锛氶偅浜涘涓虹洍鐢?婊ョ敤 Key锛岄殢鏃跺悐閿€涓旀硠闇叉暟鎹€?
+             杩欓噷鏄悇鍘傚晢**瀹樻柟鍏嶈垂 tier** 鐨勮仛鍚堬紝閰嶈嚜宸辩殑 Key銆佸畼鏂规巿鏉冦€佸け璐ュ瀹炰笂鎶ャ€?-->
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-t">
+            <span>瀹樻柟鍏嶈垂棰濆害閫氶亾 路 鑷姩杞崲</span>
+            <button class="btn ghost small" id="freeTierRefreshBtn">馃攧 鍦ㄧ嚎鍙戠幇妯″瀷</button>
+          </div>
+          <div class="text-muted">鑱氬悎鍚勫巶鍟?b>瀹樻柟鍏嶈垂 tier</b>锛屾寜鍋ュ悍涓庨厤棰濊嚜鍔ㄨ疆鎹細涓€涓敤瀹屾垨鎸傛帀锛岃嚜鍔ㄥ垏涓嬩竴涓€傞厤浠讳竴澶勭殑鍏嶈垂 Key 鍗冲彲鍚敤锛涘叏閮ㄥけ璐ヤ細濡傚疄涓婃姤锛岀粷涓嶄吉閫犳垚鍔熴€?/div>
+          <div class="sub" id="freeTierGrant" style="margin:6px 0"></div>
+          <table class="table" id="freeTierTable">
+            <thead><tr><th>閫氶亾</th><th>鍏嶈垂棰濆害</th><th>妯″瀷</th><th>鍋ュ悍</th><th>鐘舵€?/th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="sub" id="freeTierNote"></div>
+        </div>
+
+        <!-- ===== 绗?7 鏉★細璁剧疆涓灑锛堢敱 core/settings-registry.js 椹卞姩锛?====
+             涓轰粈涔堣繖涓€鍧楁槸銆屾敞鍐岃〃椹卞姩銆嶈€屼笉鏄墜鍐欏崱鐗囷細
+             瀹炴祴鍏ㄧ郴缁?getSetting() 璇讳簡 18 涓敭锛屽師璁剧疆椤靛彧鑳介厤 4 涓?鈥斺€?
+             鍛婅鏀朵欢閭銆佹敹娆捐处鍙枫€佸钩鍙拌垂鐜囥€佺洃鎺ч棿闅斻€佸苟鍙戞Ы浣嶅叏閮ㄥ彧鑳芥敼搴撴枃浠躲€?
+             閭ｉ噷鍔犱竴琛屽０鏄庯紝UI 鑷姩鍑虹幇锛屼笉瀛樺湪"蹇樹簡鍔?鐨勬儏鍐点€?
+             瑕嗙洊鐜囨帴鍙?GET /v1/settings/coverage 浼氭妸"琚鍙栧嵈鏃犳硶閰嶇疆"鐨勯敭鎶ュ嚭鏉ャ€?-->
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-t">
+            <span data-i18n="set.hub">绯荤粺璁剧疆涓灑</span>
+            <span class="sub" id="setHubCoverage"></span>
+          </div>
+          <div id="setHealth" class="set-health"></div>
+          <div id="setGroups" class="set-groups"></div>
+          <div class="row" style="gap:8px;margin-top:10px">
+            <button class="btn primary" id="setSaveBtn" data-i18n="set.saveAll">淇濆瓨鍏ㄩ儴璁剧疆</button>
+            <button class="btn ghost" id="setReloadBtn" data-i18n="common.refresh">鍒锋柊</button>
+            <label class="switch-row" style="margin:0"><span data-i18n="set.showAdv">鏄剧ず楂樼骇椤?/span><input type="checkbox" id="setAdv"><span class="sw"></span></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 澶ц剳瀹為獙瀹?===== -->
+    <!-- 绗?14 鏉★細闊宠棰?/ 娓告垙 / 闊充箰涓変釜鍒朵綔妯″潡鐨勭粺涓€鍏ュ彛銆?
+     娉ㄦ剰锛歡amestudio 鍚庣鏃╁氨瀛樺湪浣嗗墠绔?*娌℃湁浠讳綍鍏ュ彛**锛屾槸瀛ゅ効妯″潡锛?
+     闊充箰妯″潡鏈鏂板锛涘奖瑙嗘部鐢?studio 鑳藉姏銆備笁鑰呮斁涓€璧凤紝鏋勬垚"鍒涗綔宸ュ潑"銆?-->
+<section class="tab-pane" id="tab-studiohub" hidden>
+      <div class="pane-head">
+        <div class="pane-title">馃幀 鍒涗綔宸ュ潑<span class="tag violet">闊宠棰?路 娓告垙 路 闊充箰</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" id="hubRefresh">馃攧 鍒锋柊鑳藉姏</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">馃幍 闊充箰鍒朵綔锛?0+ 鍒朵綔瑕佺礌 路 绾湰鍦?DSP 路 闆剁綉缁滀緷璧栵級</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <label class="row" style="gap:5px;align-items:center">BPM <input id="musBpm" class="ipt" type="number" value="96" min="60" max="180" style="width:74px"></label>
+          <label class="row" style="gap:5px;align-items:center">灏忚妭 <input id="musBars" class="ipt" type="number" value="8" min="4" max="32" style="width:74px"></label>
+          <select id="musScale" class="ipt"></select>
+          <select id="musProg" class="ipt"></select>
+          <select id="musVoice" class="ipt"></select>
+          <button class="btn primary" id="musGo">馃幖 鐢熸垚</button>
+        </div>
+        <div class="sub" id="musNote" style="margin:8px 0"></div>
+        <div id="musPlayer"></div>
+        <div id="musElements" class="mus-elements"></div>
+        <div id="musJobs" class="mus-jobs"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">馃幃 娓告垙鍒朵綔锛坓amestudio锛氳璁?鈫?浠ｇ爜 鈫?鏋勫缓 鈫?璋冧紭锛?/div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <input id="gmIdea" class="ipt" style="flex:1;min-width:200px" placeholder="娓告垙鐐瑰瓙锛堜緥锛氫竴涓叧浜庤蹇嗕笌閬楀繕鐨勮В璋滐級">
+          <button class="btn primary" id="gmGo">馃幃 鏋勫缓</button>
+          <button class="btn ghost" id="gmEngines">鏌ョ湅寮曟搸</button>
+        </div>
+        <div class="sub" id="gmNote" style="margin:8px 0"></div>
+        <div id="gmOut" class="mod-result" hidden></div>
+        <div id="gmJobs" class="mus-jobs"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">馃帴 闊宠棰戝埗浣滐紙studio锛氶€夐 鈫?鍐欑 鈫?閰嶉煶 鈫?鎴愮墖锛?/div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <input id="svTopic" class="ipt" style="flex:1;min-width:200px" placeholder="閫夐锛堜緥锛氫笁涓湀钀ユ敹浠?0 鍒?10 涓囩殑澶嶇洏锛?>
+          <button class="btn primary" id="svGo">馃幀 鍏ㄦ祦绋嬪埗浣?/button>
+          <button class="btn ghost" id="svCap">鏌ョ湅鐜鑳藉姏</button>
+        </div>
+        <div class="sub" id="svNote" style="margin:8px 0"></div>
+        <div id="svOut" class="mod-result" hidden></div>
+      </div>
+    </section>
+
+<section class="tab-pane" id="tab-brain" hidden>
+      <div class="pane-head"><div class="pane-title">璁板繂 路 瀛︿範 路 杩涘寲涓績 <span class="tag violet">鍏ㄩ儴妯″潡</span></div></div>
+      <!-- 绗?8 鏉★細杩欎竴灞忓師鏈槸鏂囦欢杞崲鍣紝璁板繂杩涘寲鍩嬪湪椤甸潰娣卞銆?
+           鐜板湪鎶婂叏妯″潡瀛︿範浜у嚭鎻愬埌棣栦綅锛氫竴鐪肩湅鍑虹郴缁熷鍒颁粈涔堛€佸摢涓ā鍧楀湪閫€姝ャ€?-->
+      <div class="panel" id="mhubPanel">
+        <div class="panel-title">馃К 鍏ㄦā鍧楄蹇?路 瀛︿範 路 杩涘寲涓灑锛堟眹鎬绘墍鏈夊姛鑳芥ā鍧楃殑瀛︿範浜у嚭锛屼笉鍙槸鎶€鑳斤級</div>
+        <div id="mhubStats" class="stat-row"></div>
+        <div id="mhubAlerts"></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0">
+          <select id="mhubMod" class="ipt" style="max-width:190px"><option value="">鍏ㄩ儴妯″潡</option></select>
+          <span class="sub" id="mhubNote"></span>
+        </div>
+        <div id="mhubMods" class="mh-mods"></div>
+        <div id="mhubList" class="mh-list"></div>
+      </div>
+  <div class="panel">
+    <div class="panel-title">馃搧 鏂囦欢浜掓崲宸ヤ綔鍙帮紙docx/md/html/xlsx/csv/json 鈬?浜掕浆 路 鍏ㄦ湰鍦板鐞嗕笉涓婁紶 路 闅愮瀹夊叏锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input type="file" class="ipt" id="cvFile" style="flex:1;min-width:200px">
+      <select class="ipt" id="cvTarget" style="max-width:130px">
+        <option value="md">鈫?Markdown</option>
+        <option value="html">鈫?HTML</option>
+        <option value="docx">鈫?Word(docx)</option>
+        <option value="xlsx">鈫?Excel(xlsx)</option>
+        <option value="json">鈫?JSON</option>
+        <option value="csv">鈫?CSV</option>
+        <option value="txt">鈫?绾枃鏈?/option>
+        <option value="tidy">鈫?鏁寸悊鏍煎紡</option>
+      </select>
+      <button class="btn primary" id="cvGo">寮€濮嬭浆鎹?/button>
+    </div>
+    <pre class="mod-result" id="cvResult" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摲 鎷嶇収 / 瑙嗛褰曞埗锛堣皟鐢ㄨ澶囨憚鍍忓ご 路 鐓х墖瑙嗛鍙洿鎺ラ€佸叆闊宠棰戞祦姘寸嚎锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" id="capPhoto">馃摲 鎷嶇収</button>
+      <button class="btn ghost" id="capVideo">馃帴 褰曞埗瑙嗛</button>
+      <button class="btn ghost" id="capScreen">馃枼 褰曞埗灞忓箷</button>
+      <select class="ipt" id="capCam" style="max-width:200px"></select>
+    </div>
+    <video id="capPreview" class="cap-preview" autoplay playsinline muted></video>
+    <div class="row" style="gap:8px;margin-top:8px" id="capActions" hidden>
+      <button class="btn primary" id="capSnap">鎷嶄笅褰撳墠甯?/button>
+      <button class="btn primary" id="capStop">鍋滄褰曞埗</button>
+    </div>
+    <pre class="mod-result" id="capLog" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃惥 鍗佷簩鐢熻倴鍏绘垚锛?2 鍙悓灞?路 鑷富琛屽姩 路 鐐瑰嚮浜掑姩鍠傞/鐜╄€?鎶氭懜 路 鍗囩骇瑙ｉ攣涓嬩竴鍙級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap" id="zodiCtl"><span class="sub">鍔犺浇涓€?/span></div>
+  </div>
+      <div class="brain-grid">
+        <div class="card">
+          <div class="card-t">鑷垜璁板繂 <button class="btn ghost small" id="memAddBtn">+ 娣诲姞璁板繂</button></div>
+          <div class="row"><input id="memQ" placeholder="妫€绱㈠叧閿瘝锛堢暀绌烘樉绀哄叏閮級"><button class="btn ghost small" id="memSearchBtn">妫€绱?/button></div>
+          <div class="memory-list auto-scroll" id="memList"></div>
+        </div>
+        <div class="card">
+          <div class="card-t">瀛︿範鏇茬嚎</div>
+          <div class="learn-grid" id="learnGrid"></div>
+        </div>
+        <div class="card">
+          <div class="card-t">涓撳浼氳瘖 <span class="sub">4 浣嶄笓瀹剁嫭绔嬭瑙?/span></div>
+          <div class="row" style="margin-bottom:10px">
+            <select id="agentSel">
+              <option value="analyst">馃攳 鍒嗘瀽涓撳</option>
+              <option value="strategist">馃幆 鎴樼暐椤鹃棶</option>
+              <option value="planner">馃洜 椤圭洰绛栧垝</option>
+              <option value="critic">馃洝 椋庢帶瀹¤</option>
+            </select>
+            <label class="check-inline"><input type="checkbox" id="agentDepth">娣卞害</label>
+          </div>
+          <textarea id="agentQ" rows="2" placeholder="鎶涗竴涓棶棰橈紝璁╀笓瀹剁嫭绔嬪垎鏋愨€?></textarea>
+          <div class="row" style="margin-top:10px;justify-content:flex-end">
+            <button class="btn primary" id="agentGoBtn">寮€濮嬩細璇?/button>
+          </div>
+          <div id="agentResult" class="sub" style="margin-top:10px;white-space:pre-wrap">杩樻病闂繃涓撳銆傚啓涓嬩竴涓棶棰橈紝鍥涗綅涓撳浼氬悇鑷粰鍑虹嫭绔嬭瑙掋€?/div>
+        </div>
+        <div class="card">
+          <div class="card-t">鐭ヨ瘑搴?<span class="sub" id="knCount"></span></div>
+          <div class="row" style="margin-bottom:10px">
+            <input id="knQ" placeholder="妫€绱㈡矇娣€鐭ヨ瘑鈥? style="flex:1">
+            <button class="btn ghost small" id="knSearchBtn">妫€绱?/button>
+          </div>
+          <div class="row" style="margin-bottom:10px;gap:8px">
+            <input id="knAddQ" placeholder="闂" style="flex:1">
+            <input id="knAddA" placeholder="绛旀" style="flex:1">
+            <button class="btn ghost small" id="knAddBtn">瀛樺叆</button>
+          </div>
+          <div class="knowledge-list auto-scroll" id="knList"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:var(--sp-4)">
+        <div class="card-t">杩涘寲璁板綍 <span class="sub" id="evoCount"></span></div>
+        <div class="evo-list auto-scroll" id="evoList"></div>
+      </div>
+    </section>
+
+    <!-- ===== 鎶€鑳藉啗姊板簱 ===== -->
+    <section class="tab-pane" id="tab-skills" hidden>
+  <div class="pane-head">
+    <div class="pane-title">鎶€鑳藉啗姊板簱 <span class="tag violet" id="skTotal">300+</span></div>
+    <div class="toolbar">
+      <input id="skQ" placeholder="妫€绱㈡妧鑳解€? style="width:200px">
+      <button class="btn ghost" onclick="refreshSkills()">鍒锋柊</button>
+    </div>
+  </div>
+  <!-- 绗?9 鏉★細鍘熸潵鍒嗙被绛涢€夎鐨勬槸 s.cat锛岃€?API 杩斿洖鐨勬槸鏁扮粍鍏冪粍锛?
+       cat 鍏ㄦ槸 undefined 鈫?鍒嗙被 chips 褰㈠悓铏氳锛岃繖灏辨槸"杈圭晫涓嶆竻"鐨勭敱鏉ャ€?
+       鐜板湪鍒嗗洓灞傦細鐢ㄩ€旈€熸煡 / 鍐呯疆鍒嗙被 / 澶栭儴鑳藉姏鍩?/ 杈圭晫閲嶅彔鍛婅銆?-->
+  <div class="panel">
+    <div class="panel-title">馃幆 鐢ㄩ€旈€熸煡锛堝厛璇翠綘瑕佸共浠€涔堬紝杩欓噷鐩存帴鍛婅瘔浣犺璋冨摢绫伙級</div>
+    <div id="skClusters" class="sk-clusters"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摝 搴撳涓庡彲淇″害</div>
+    <div id="skTrust" class="sk-trust"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鈿狅笍 杈圭晫閲嶅彔鍛婅锛堟寜鍒嗙被鎵句笉鍒板畠锛屼絾瀹冨懡涓涓兘鍔涘煙锛?span class="tag" id="skOverlapN">0</span></div>
+    <div id="skOverlaps" class="sk-overlaps"></div>
+  </div>
+  <!-- 瑕嗙洊浣撴锛氭妸"鍝効娌′笢瑗?涔熸憡寮€銆傚師鏉ラ浂瑕嗙洊鑳藉姏鍩熻 filter 鎺夈€?
+       寰呭綊绫?鏃犳弿杩板彧鏈夎鏁帮紝缂哄彛鍏ㄦ槸闅愬舰鐨勶紙杩欏崐杈规瘮"閲嶅彔鍛婅"鏇村叧閿級銆?-->
+  <div class="panel">
+    <div class="panel-title">馃┖ 瑕嗙洊浣撴锛堝摢閲屾湁銆佸摢閲岀┖銆佸摢閲岄噸澶嶏級</div>
+    <div id="skCoverage" class="sk-coverage"></div>
+  </div>
+  <div class="sk-filter" id="skFilter"></div>
+  <div class="sk-grid auto-scroll" id="skGrid"></div>
+  <div class="panel" style="margin-top:14px">
+    <div class="panel-title">鍏ㄧ綉鎶€鑳藉彂鐜?路 鑷垜杩涘寲 <span class="tag violet">GitHub 瀹炴椂妫€绱?/span></div>
+    <div class="fw-apply" style="margin-bottom:8px">
+      <select id="skDiscCat" style="flex:0 0 150px">
+        <option value="agent skill">鏅鸿兘浣撴妧鑳?/option>
+        <option value="mcp server">MCP 鏈嶅姟</option>
+        <option value="awesome llm">澶фā鍨嬪簲鐢?/option>
+        <option value="ai assistant">AI 鍔╂墜</option>
+      </select>
+      <input id="skDiscQ" placeholder="鎴栬緭鍏ヤ换鎰忓叧閿瘝锛屽 langchain / autogen鈥? style="flex:2">
+      <button class="btn primary" id="skDiscBtn">馃攳 鍏ㄧ綉鍙戠幇</button>
+      <button class="btn ghost" id="skVerifyBtn">馃К 鏍搁獙鍏ㄩ儴澶栭儴婧?/button>
+    </div>
+    <div class="sk-disc" id="skDisc" hidden>
+      <div class="sk-disc-list auto-scroll" id="skDiscList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Agent 绠＄悊涓績锛坧aseo 缂栨帓鑱斿姩锛?===== -->
+<section class="tab-pane" id="tab-agents" hidden>
+  <!-- 绗?10 鏉★細澶?Agent 鍗忎綔銆傛斁鍦?Paseo 闈㈡澘涔嬪墠鈥斺€斿洜涓?Paseo 渚濊禆澶栭儴瀹堟姢杩涚▼锛?
+       瀹炴祴鏈満澶氭暟鍑芥暟杩斿洖绌猴紱鑰屾湰鏈虹湡瀹炵殑 7 涓ā鍨嬮€氶亾 + opencode CLI 鏄彲鐢ㄧ殑銆?-->
+  <div class="pane-head">
+    <div class="pane-title">Agent 绠＄悊涓績 <span class="tag violet">澶?Agent 鍗忎綔缃?/span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="amRefresh">馃攧 鍒锋柊</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃З 鍙敤 Agent 鍚庣锛?span id="amCount">0</span> 涓?路 鑷姩鎺㈡祴閫氶亾/CLI/涓撳锛?/div>
+    <div id="amBackends" class="am-grid"></div>
+    <div class="sub" id="amNote" style="margin-top:8px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃棧锔?澶?Agent 浼氬晢锛堢湡骞跺彂璋冪敤 路 鍚勫悗绔嫭绔嬩綔绛旓級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select id="amTask" class="ipt" style="max-width:130px">
+        <option value="analysis">鍒嗘瀽绫?/option><option value="strategy">鎴樼暐绫?/option>
+        <option value="coding">宸ョ▼绫?/option><option value="writing">鍐欎綔绫?/option>
+        <option value="review">璇勫绫?/option><option value="creative">鍒涙剰绫?/option>
+      </select>
+      <input id="amQ" class="ipt" style="flex:1;min-width:200px" placeholder="瑕佷細鍟嗙殑闂锛堜緥锛氳涓嶈鎶婂畾浠蜂粠 99 鎻愬埌 129锛?>
+      <button class="btn primary" id="amDebate">馃棧锔?寮€濮嬩細鍟?/button>
+    </div>
+    <div id="amDebateOut" style="margin-top:10px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摝 GitHub 鎶€鑳藉寘锛?span id="amPackN">0</span> 涓潵婧?路 妫€绱㈠埌 <span id="amPackF">0</span> 涓€欓€?路 瑁呰浇闇€浜哄伐纭锛?/div>
+    <div id="amPacks" class="am-packs"></div>
+  </div>
+  <div class="pane-head" style="margin-top:18px">
+    <div class="pane-title" style="font-size:var(--fs-m)">Paseo 瀹堟姢杩涚▼锛堝彲閫?路 渚濊禆澶栭儴瀹夎锛?/div>
+    <div class="toolbar">
+      <button class="btn ghost" id="agRefresh">鍒锋柊</button>
+      <button class="btn primary" id="agInstall">馃摜 浠?GitHub 涓嬭浇 paseo</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title" id="agStatusHead">馃寪 paseo 缂栨帓鐘舵€?/div>
+    <div class="mod-result" id="agStatus" hidden></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost" id="agDaemonStart">鈻?鍚姩 daemon</button>
+      <button class="btn ghost" id="agDaemonRestart">馃攧 閲嶅惎 daemon</button>
+      <button class="btn ghost" id="agDaemonStop">鈴?鍋滄 daemon</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃幆 鑱斿姩鑱旇皟 路 鎸囨尌鍙?<span class="tag violet">璺?Agent 鍗忓悓</span></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <input id="agRunPrompt" placeholder="浠诲姟鎻忚堪锛坅gent run锛屽悗鍙拌繍琛岋級" style="flex:3;min-width:260px">
+      <input id="agRunTitle" placeholder="浠诲姟鏍囬锛堝彲閫夛級" style="flex:1;min-width:120px">
+      <input id="agRunProvider" placeholder="provider锛堝彲閫夛紝濡?claude/codex锛? style="flex:1;min-width:140px">
+      <button class="btn primary" id="agRunGo">馃殌 鍒涘缓骞惰繍琛?/button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="agSendId" placeholder="鐩爣 Agent ID锛堣仈鍔ㄨ仈璋冿級" style="flex:1;min-width:150px">
+      <input id="agSendPrompt" placeholder="鎸囨尌鎸囦护锛坅gent send锛屼笉绛夊緟瀹屾垚锛? style="flex:3;min-width:280px">
+      <button class="btn primary" id="agSendGo">馃摚 鎶曢€掓寚浠?/button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <input id="agStopId" placeholder="Agent ID锛堝仠姝級" style="flex:1;min-width:150px">
+      <button class="btn ghost" id="agStopGo">鈴?鍋滄 Agent</button>
+      <input id="agLogsId" placeholder="Agent ID锛堢湅鏃ュ織锛? style="flex:1;min-width:150px">
+      <button class="btn ghost" id="agLogsGo">馃摐 鎷夋棩蹇?/button>
+    </div>
+    <pre class="mod-result" id="agActionOut" hidden>鎵ц涓€娆℃搷浣滐紝杩斿洖缁撴灉浼氭樉绀哄湪杩欓噷銆?/pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title" id="agAgentsHead">馃 宸茶仈鍔?Agent</div>
+    <div class="mod-result" id="agAgents" hidden></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃敆 鍗忓悓娴佹按锛堣仈鍔ㄨ仈璋冨崗璋冧簰鍔ㄥ崗鍚屽彴璐︼級</div>
+    <pre class="mod-result" id="agCoop" hidden></pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃Ь 钀藉湴鏃ュ織</div>
+    <pre class="mod-result" id="agLog" hidden></pre>
+  </div>
+</section>
+
+<!-- ===== 24h 鑷富杩愯惀 ===== -->
+<section class="tab-pane" id="tab-auto" hidden>
+  <!-- 绗?11 鏉★細鍏ㄥ獟浣撹繍钀ャ€傛斁鍦ㄨ嚜涓昏繍钀ラ潰鏉块浣嶁€斺€旈渶姹傝鐨?鑷墭绠″叏杩愯惀"灏辫惤鍦ㄨ繖閲?-->
+  <div class="panel">
+    <div class="panel-title">馃摗 鍏ㄥ獟浣撹繍钀ヤ腑鏋紙鏂囨/鍥剧墖/瑙嗛 鈫?澶氬钩鍙板彂甯?鈫?鍙嶉涓庤鍗曞洖娴侊級</div>
+    <div id="pubStats" class="stat-row"></div>
+    <div class="sub" id="pubNote" style="margin:8px 0"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="pubKw" class="ipt" style="flex:1;min-width:180px" placeholder="瀹㈡埛鍏抽敭璇嶏紙閫楀彿鍒嗛殧锛岀敤浜庡叏缃戞姄鍙栧鎴蜂笌鎯呮姤锛?>
+      <button class="btn ghost" id="pubKwSave">淇濆瓨鍏抽敭璇?/button>
+      <button class="btn ghost" id="pubHarvest">馃寪 鍏ㄧ綉鎶撳彇</button>
+    </div>
+    <div id="pubHarvestOut" class="sub" style="margin:6px 0"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃搵 鍙戝竷闃熷垪锛堥粯璁や笉鑷姩瀵瑰鍙戝竷 路 涓嶅彲閫嗗姩浣滅暀浜哄伐纭锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="pubTitle" class="ipt" style="flex:1;min-width:180px" placeholder="鍐呭鏍囬">
+      <input id="pubBody" class="ipt" style="flex:1;min-width:180px" placeholder="鍐呭姝ｆ枃">
+      <button class="btn primary" id="pubEnq">鍔犲叆闃熷垪</button>
+    </div>
+    <div id="pubPlatforms" class="pub-plats"></div>
+    <!-- 绗?11 鏉★細鏃?API 鍑瘉鏃讹紝杩愯惀鑰呯湡瀹炲彂甯冨悗鎵嬪姩鐧昏锛堥』鐣欐牳楠屼緷鎹紝瑙?publisher.js锛?
+         涓庣郴缁熻嚜鍔ㄥ彂甯冨垎寮€璁℃暟锛屼笉浼€?鑷姩宸插彂甯?銆?->
+    <div class="pub-manual">
+      <input id="pubManualId" class="ipt" style="max-width:120px" placeholder="闃熷垪 ID">
+      <input id="pubManualUrl" class="ipt" style="flex:1;min-width:150px" placeholder="宸插彂甯冮摼鎺ワ紙鏍搁獙渚濇嵁锛?>
+      <input id="pubManualNote" class="ipt" style="flex:1;min-width:150px" placeholder="璇存槑锛堣皝銆佸湪鍝€佸灏戝瓧鈥︼級">
+      <button class="btn ghost" id="pubManualBtn">鐧昏鎵嬪姩鍙戝竷</button>
+    </div>
+    <div id="pubQueue" class="pub-queue"></div>
+  </div>
+  <div class="pane-head" style="margin-top:16px">
+    <div class="pane-title" style="font-size:var(--fs-m)">24h 鑷富宸℃父</div>
+  </div>
+  <div class="pane-head">
+    <div class="pane-title">24h 鍏ㄦ墭绠¤嚜涓昏繍钀?<span class="tag violet">涓€鐩村湪绾?路 鑷富杩涘寲</span></div>
+    <div class="toolbar">
+      <select class="ipt" id="autoInterval" style="max-width:130px" title="鑷姩鎵ц鑺傚">
+        <option value="300">姣?5 鍒嗛挓</option>
+        <option value="900">姣?15 鍒嗛挓</option>
+        <option value="1800">姣?30 鍒嗛挓</option>
+        <option value="3600">姣?1 灏忔椂</option>
+        <option value="21600">姣?6 灏忔椂</option>
+      </select>
+      <button class="btn ghost" id="autoToggleBtn">鈴?鏆傚仠鎵樼</button>
+      <button class="btn ghost" id="autoStatusBtn">馃攧 鍒锋柊鐘舵€?/button>
+      <button class="btn primary" id="autoRunBtn">鈻?绔嬪嵆璺戜竴杞?/button>
+    </div>
+  </div>
+  <div id="autoAlert" class="sub" style="padding:0 4px 8px;color:#ff8a8a" hidden>褰撳墠鏃犲紓甯稿憡璀︺€?/div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-v" id="autoRound">0</div><div class="stat-l">宸插畬鎴愯疆娆?/div></div>
+    <div class="stat"><div class="stat-v" id="autoState">鈥?/div><div class="stat-l">杩愯鐘舵€?/div></div>
+    <div class="stat"><div class="stat-v" id="autoNext">鈥?/div><div class="stat-l">涓嬭疆鍊掕鏃?/div></div>
+    <div class="stat"><div class="stat-v" id="autoLogN">0</div><div class="stat-l">鏃ュ織鏉℃暟</div></div>
+    <div class="stat"><div class="stat-v" id="autoWheel">鈥?/div><div class="stat-l">妯″潡杞贰</div></div>
+    <div class="stat"><div class="stat-v" id="autoOk">鈥?/div><div class="stat-l">杩?20 杞仴搴峰害</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">鍔熻兘妯″潡搴?<span class="tag violet" id="modTotal"></span></div>
+      <input class="ipt" id="modKw" placeholder="鎼滅储妯″潡锛堜綋妫€/姝㈡崯/鐑偣鈥︼級" style="max-width:220px">
+    </div>
+    <div class="mod-grid" id="modGrid"></div>
+    <pre class="mod-result" id="modResult" hidden>鐐瑰乏渚т换涓€妯″潡锛屼綋妫€鏄庣粏浼氭樉绀哄湪杩欓噷銆?/pre>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">鎵ц閾捐矾 路 鍒嗘鍋ュ悍涓庡崟姝ラ噸璺?/div>
+      <span class="sub" id="autoStepHint">鐐逛换涓€姝ュ彲鍗曠嫭閲嶈窇锛堟帓闅滅敤锛屼笉褰卞搷杞缂栧彿锛?/span>
+    </div>
+    <div class="mod-grid" id="autoStepGrid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鏈€杩戜竴杞?路 鍔ㄤ綔娓呭崟</div>
+    <pre class="auto-round" id="autoLast"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">杩愯惀鏃ュ織锛堟渶杩?15 杞級</div>
+    <div class="auto-log auto-scroll" id="autoLog"></div>
+  </div>
+  <div class="sub" style="padding:8px 4px">姣?15 鍒嗛挓鑷姩鎵ц涓€杞細鍏ㄧ綉鎯呮姤閲囬泦锛圙itHub 瓒嬪娍/鐑偣/鏂伴椈/姘旇薄锛夆啋 鐭ヨ瘑娌夋穩 鈫?鎶€鑳借嚜鎴戣繘鍖栵紙GitHub 鍙戠幇鏂版ā鍧楀苟鏀跺綍锛夆啋 鍔熻兘妯″潡杞贰锛?6 涓湡瀹炴ā鍧楋細鏁版嵁浣撴/鍐崇瓥杩愯惀/鐭ヨ瘑杩愯惀/椤圭洰杩愯惀/鍐呭澶嶇敤/椋庨櫓鍊煎畧/鎯呮姤閲囬泦/澶ц剳杩涘寲锛夆啋 鍛樺伐鎶€鑳藉疄鏃跺埛鏂?鈫?閫氶亾璇勫垎浼樺寲 鈫?鐢熸垚鑷繍钀ユ姤鍛娿€傚嵆浣挎棤浜哄璇濓紝绯荤粺涔熷湪鎸佺画瀛︿範涓庤繘鍖栥€?/div>
+
+  <div class="panel" style="margin-top:10px">
+    <div class="panel-head">
+      <div class="panel-title">馃 鑷富鍙戝竷寮曟搸 <span class="tag green">L1 娴忚鍣ㄨ嚜涓?/span></div>
+      <div class="toolbar">
+        <button class="btn ghost" id="apbStatusBtn">馃攧 鍒锋柊鐧诲綍鎬?/button>
+      </div>
+    </div>
+    <div style="margin:8px 0">
+      <select id="apbPlatform" class="ipt" style="max-width:180px"></select>
+      <button class="btn ghost" id="apbLoginCheck">馃攳 鎺㈡祴鐧诲綍鎬?/button>
+      <label class="chk" style="margin-left:10px"><input type="checkbox" id="apbDry" checked> 鎷熺涓嶅彂甯?/label>
+    </div>
+    <div class="sub" style="padding:6px 2px">馃殌 閫夋嫨骞冲彴 鈫?妗嗛噷濉爣棰?姝ｆ枃锛堟垨浠庝笅鏂?鍦ㄥ簱璧勪骇"涓€閿彇鏂欙級鈫?銆屼笅涓€姝ャ€嶆嫙绋垮埌骞冲彴缃戦〉锛堜笉鐐瑰彂甯冿級鈫?鏍稿疄鏃犺鍐嶃€岀湡瀹炲彂甯冦€嶃€傜湡瀹炲彂甯冧細鐣欎笅骞冲彴 URL 璇佹嵁骞惰鍏ュ璁°€?/div>
+    <div style="margin:8px 0">
+      <input class="ipt" id="apbTitle" placeholder="鏍囬锛堚墹60 瀛楋級" style="flex:1;min-width:200px;display:block;width:100%;margin-bottom:6px">
+      <textarea class="ipt" id="apbBody" rows="4" placeholder="姝ｆ枃锛堚墹5000 瀛楋級" style="width:100%"></textarea>
+    </div>
+    <div class="toolbar" style="flex-wrap:wrap">
+      <button class="btn primary" id="apbNext">鈶?鎷熺鍒板钩鍙?<span id="apbDryTag">(dry-run)</span></button>
+      <button class="btn danger" id="apbPublish">鈶?鐪熷疄鍙戝竷 <span id="apbRealTag"></span></button>
+      <select id="apbAssetPick" class="ipt" style="max-width:260px" onchange="autopubPickAsset(this)">
+        <option value="">浠庡湪搴撳唴瀹硅祫浜у彇鏂欌€?/option>
+      </select>
+    </div>
+    <div style="margin:10px 0;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:8px;max-height:180px;overflow:auto">
+      <b>鍦ㄥ簱鍐呭璧勪骇锛坈onductor 浜х墿 路 data/assets锛?/b>
+      <div id="apbAssets" class="sub">鍔犺浇涓€?/div>
+    </div>
+    <div id="apbResult" class="sub" style="margin:8px 0;padding:8px;background:#f4f7ff;border:1px solid #dbe6ff;border-radius:8px"></div>
+    <div class="panel-title" style="font-size:13px;margin-top:8px">鍙戝竷鏃ュ織锛堝悇骞冲彴鏈€杩戣褰曪級</div>
+    <div id="apbLog" class="sub" style="white-space:pre-wrap">姣忔鍙戝竷鍚庯紝骞冲彴鍥炴墽浼氳鍦ㄨ繖閲屻€?/div>
+  </div>
+</section>
+
+<!-- ===== 浣滄垬鎸囨尌濉旓細鑱旇皟鑱斿姩涓诲惊鐜?===== -->
+<section class="tab-pane" id="tab-cmd" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃帠锔?浣滄垬鎸囨尌濉?span class="tag violet">鍏ㄥ眬鏁版嵁鍖?路 鎸囨尌寤鸿</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="cmdStatusBtn">馃攧 鍒锋柊</button>
+      <button class="btn primary" id="cmdRunBtn">鈿?绔嬪嵆鎵ц涓€杞?/button>
+    </div>
+  </div>
+  <!-- 绗?3 鏉★細Orca 妗岄潰鎸囨尌鍙帮紙涓€涓闈㈡寚鎸ユ墍鏈夌紪鐮?AI锛?-->
+  <div class="panel" id="orcaPanel">
+    <div class="panel-title">馃悑 Orca 鎸囨尌鍙帮紙涓€涓闈㈡寚鎸ユ墍鏈夌紪鐮?AI 路 <span id="orcaExecN">0</span> 涓墽琛屼綋锛?/div>
+    <div id="orcaStats" class="stat-row"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="orcaTask" class="ipt" style="flex:1;min-width:200px" placeholder="娲句釜娲伙紙渚嬶細妫€鏌ョ郴缁熷仴搴凤級">
+      <select id="orcaArch" class="ipt" style="max-width:160px"></select>
+      <select id="orcaPri" class="ipt" style="max-width:110px" title="浼樺厛绾э細鏁板瓧灏?浼樺厛">
+        <option value="1">鏈€楂?/option><option value="5" selected>涓?/option><option value="9">鏈€浣?/option>
+      </select>
+      <button class="btn primary" id="orcaEnq">鍏ラ槦</button>
+      <button class="btn ghost" id="orcaRun">鎵ц闃熷垪</button>
+      <label class="row" style="gap:4px;align-items:center;font-size:var(--fs-s)">妲戒綅
+        <select id="orcaSlots" class="ipt" style="max-width:70px"></select>
+      </label>
+    </div>
+    <div id="orcaExecs" class="orca-execs" style="margin-top:10px"></div>
+    <div id="orcaRecent" style="margin-top:8px"></div>
+    <div id="orcaJobs" class="orca-jobs"></div>
+    <div id="orcaCharts" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <div class="panel"><div class="panel-title">馃搳 瀹炴椂鍥捐〃</div>
+        <canvas id="chartUtil" height="120"></canvas>
+        <canvas id="chartThroughput" height="120"></canvas>
+        <canvas id="chartLatency" height="120"></canvas>
+        <canvas id="chartSuccess" height="120"></canvas>
+      </div>
+      <div class="panel"><div class="panel-title">馃懃 浜哄憳鑴夌粶</div>
+        <div id="pulseMap" style="max-height:400px;overflow:auto"></div>
+      </div>
+      <div class="panel"><div class="panel-title">馃暩 鍦烘櫙鍔ㄦ€佸浘</div>
+        <canvas id="sceneGraph" height="300"></canvas>
+        <div id="heatmap" class="sub" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div id="orcaWSStatus" class="sub" style="margin-top:8px;text-align:center">WebSocket: <span id="wsState">杩炴帴涓?..</span></div>
+  </div>
+
+<!-- 绗?9 鏉★細MetaGPT SOP 娴佹按绾?-->
+  <div class="panel" id="sopPanel">
+    <div class="panel-title">馃彈 SOP 娴佹按绾匡紙Code = SOP(Team) 路 涓€琛岄渶姹傞┍鍔ㄤ簲涓鑹?路 姣忛樁娈靛甫 Review/Revise 闂搁棬锛?/div>
+    <div id="sopStages" class="sop-stages"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="sopReq" class="ipt" style="flex:1;min-width:220px" placeholder="涓€琛岄渶姹傦紙Boss Requirement锛変緥锛氬仛涓€涓粰灏忓井鍟嗗鐢ㄧ殑鑷姩鑾峰宸ュ叿">
+      <button class="btn primary" id="sopRun">鍚姩铏氭嫙鐮斿彂鍥㈤槦</button>
+    </div>
+    <div class="sub" style="margin:6px 0">
+      闂搁棬璇存槑锛氫骇鍑虹敱<strong>鏈烘鍒ゆ嵁</strong>妫€鏌ワ紙鏄惁瑕嗙洊璇ラ樁娈靛繀闇€瑕佺偣锛夛紝涓嶉潬妯″瀷鑷堪"閫氳繃"銆備笉杈炬爣鑷姩鎵撳洖閲嶅仛锛岃秴杩囦笂闄愬垯<strong>闃诲骞跺瀹炰笂鎶?/strong>锛岀粷涓嶅甫鐫€闂杩涘叆涓嬩竴闃舵銆?
+    </div>
+    <div id="sopOut" style="margin-top:8px"></div>
+  </div>
+<!-- Graphify 璇箟鐭ヨ瘑鍥捐氨锛氳蹇嗗眰/涓冨眰鏋舵瀯/瀛︿範闂幆鐨勫叡鍚屽簳搴?-->
+  <div class="panel" id="graphPanel">
+    <div class="panel-title">馃暩 璇箟鐭ヨ瘑鍥捐氨锛?span id="gpNodes">0</span> 鑺傜偣 / <span id="gpEdges">0</span> 杈?路 姣忔潯杈归兘鍙洖婧埌鏉ユ簮锛?/div>
+    <div id="gpStats" class="stat-row"></div>
+    <div id="gpKinds" class="gp-kinds"></div>
+    <div id="gpTop" class="gp-top"></div>
+    <div id="gpOrphan" class="gp-orphan"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input id="gpNode" class="ipt" style="flex:1;min-width:200px" placeholder="鏌ラ偦鍩燂細绮樿创鑺傜偣 id锛堝 mod:store 鎴?layer:governance锛?>
+      <button class="btn primary" id="gpFind">鏌ラ偦鍩?/button>
+    </div>
+    <div id="gpNb" style="margin-top:8px"></div>
+  </div>
+<!-- 绗?1 鏉★細涓冨眰鏋舵瀯鑷笂鑰屼笅 + 闂幆鍥涙锛屽叏閮ㄧ敱鐪熷疄鎺㈡祴寰楀嚭鐘舵€?-->
+  <div class="panel" id="archPanel">
+    <div class="panel-title">馃П AI 鏅鸿兘浣撲竷灞傛灦鏋勶紙鑷笂鑰屼笅 路 鐘舵€佺敱鐪熷疄鎺㈡祴寰楀嚭锛岄潪闈欐€佸０鏄庯級</div>
+    <div class="arch-stack" id="archStack"></div>
+    <div class="sub" id="archTotals" style="margin:8px 0"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃攣 涓氬姟闂幆锛氭劅鐭ョ幆澧?鈫?鎺ㄧ悊瑙勫垝 鈫?璋冪敤宸ュ叿 鈫?璁板繂鍙嶉</div>
+    <div class="arch-loop" id="archLoop"></div>
+  </div>
+  <!-- 绗?7 鏉★細涓冪 Agent 缂栨帓鏋舵瀯锛屽彲閫夊彲璺?-->
+  <div class="panel" id="orchPanel">
+    <div class="panel-title">馃 涓冪 Agent 缂栨帓鏋舵瀯锛堟寜婕旇繘椤哄簭 路 鍙垏鎹?路 璁?trace锛?/div>
+    <div id="orchList" class="orch-list"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <select id="orchKind" class="ipt" style="max-width:190px"></select>
+      <input id="orchTask" class="ipt" style="flex:1;min-width:200px" placeholder="瑕佹墽琛岀殑浠诲姟">
+      <button class="btn primary" id="orchRun">鈻?鎵ц</button>
+      <button class="btn ghost" id="orchRec">馃幆 鎺ㄨ崘鏋舵瀯</button>
+    </div>
+    <div id="orchOut" style="margin-top:10px"></div>
+    <div class="orch-sub2">
+      <!-- 浜掑姩绠＄悊鎺у埗鍛戒护锛氱粺涓€鍏ュ彛锛屽悗绔笌鍓嶇鍏辩敤鍚屼竴瀹炵幇 -->
+      <div class="panel-title" style="margin-top:10px">馃帥锔?浜掑姩鎺у埗鍛戒护锛堢紪鎺?閾捐矾/瀵规瘮/绔為€?瀛︿範锛?/div>
+      <div id="orchCmds" class="cmd-list"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+        <select id="orchCmdSel" class="ipt" style="max-width:180px"></select>
+        <input id="orchCmdArg" class="ipt" style="flex:1;min-width:180px" placeholder="鍛戒护鍙傛暟锛堝彲鐣欑┖锛岄粯璁ゅ€煎嵆鐢ㄦ硶绀轰緥锛? oninput="$('#orchTask').value=this.value">
+        <button class="btn primary" id="orchCmdGo">鎵ц鍛戒护</button>
+        <button class="btn ghost" id="orchChaosBtn">娣锋矊婕旂粌</button>
+      </div>
+      <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+        <div style="flex:1;min-width:260px"><div class="panel-title" style="font-size:var(--fs-s)">馃К 娣锋矊娌荤悊锛堟敞鍏ュ彈鎺ф晠闅滐紝楠岃瘉浼橀泤闄嶇骇锛?/div><div id="chaosBox" class="chaos-box"></div></div>
+        <div style="flex:1;min-width:260px"><div class="panel-title" style="font-size:var(--fs-s)">馃摎 瀛︿範闂幆锛堜粠鐪熷疄 trace 瀛﹀嚭妯″紡锛?/div><div id="orchLearn" class="learn-box"></div></div>
+      </div>
+    </div>
+  </div>
+  <!-- 绗?12 鏉★細鍏ㄥ眬鎬佸娍 -->
+  <div class="panel" id="wbPanel">
+    <div class="panel-title">馃帠锔?鍏ㄥ眬鎬佸娍锛堟墍鏈夊姛鑳芥ā鍧楀疄鏃剁姸鎬?路 绾㈤粍缁跨敱鐪熷疄鏁版嵁鎺ㄥ锛?/div>
+    <div id="wbModules" class="wb-grid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摚 鎸囨尌寤鸿锛堟瘡鏉￠兘甯﹁Е鍙戜緷鎹笌鍙墽琛屽姩浣滐紝鍙牳鏌ワ級</div>
+    <div id="wbAdvice" class="wb-advice"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鏈疆鍐崇瓥 路 涓绘敾鏂瑰悜</div>
+    <pre class="auto-round" id="cmdMission"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鏈€杩戣鍔?路 鐪熷疄楠屾敹璇佹嵁</div>
+    <pre class="auto-round" id="cmdLast"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鎸囨尌鎵ц鍙拌处锛堟渶杩?30 杞級</div>
+    <div class="auto-log auto-scroll" id="cmdLog"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鍙戝竷鍒楄溅鐘舵€?/div>
+    <pre class="auto-round" id="cmdTrain"></pre>
+  </div>
+  <div class="sub" style="padding:8px 4px">鎸囨尌濉旀妸鏁ｈ惤寮曟搸涓叉垚涓诲惊鐜細鐩爣缂哄彛锛堣禋閽辩洰鏍囷級鈫?鍐冲畾鏈疆涓绘敾锛堝闀夸欢/鍙戣溅/鐣欏瓨/杩樺€?鎶€鑳借惤鍦?鍐呭璧勪骇锛夆啋 鐪熷疄鎵ц锛堣惤鐩?data/assets銆乬it clone 鎶€鑳姐€佽杞藉彂甯冨垪杞︼級鈫?楠岃瘉璇佹嵁 鈫?钀借处瀹¤銆傚嚒鏄病鐪熷疄鍙戠敓鐨勪竴寰嬪瀹炶"璺宠繃"锛岀粷涓嶇紪閫犳垚鍔熴€傚け璐ヨ嚜鍔ㄨ繘鐩戞帶鍛婅閫氶亾銆?/div>
+</section>
+
+<!-- ===== 鍚屽湪瀹堟姢锛氬叚鍨嬩汉鏍?/ 娲讳笅鍘绘墜鍐?/ 鍚岃矾浜?/ 骞存姤涓庢鎹熺嚎 / 鍐呭澶嶇敤鍣?===== -->
+<section class="tab-pane" id="tab-guard" hidden>
+  <div class="pane-head">
+    <div class="pane-title">鍚屽湪瀹堟姢 <span class="tag">浣滄垬绛栫暐鏅烘収搴?/span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="guardRefresh">鍒锋柊鍏ㄩ儴</button>
+    </div>
+  </div>
+  <!-- 绗?12 鏉″悗鍗婏細瀹堟姢涓嶆槸"璧勬枡"锛屾槸鍙墽琛岀殑浣滄垬绛栫暐鏁版嵁涓績銆?
+       姣忔潯绛栫暐蹇呴』鏈?閫傜敤鍦烘櫙 / 鍔ㄤ綔 / 鍒ゆ嵁锛屽苟鏍囧嚭姝ゅ埢鍝嚑鏉＄湡姝ｉ€傜敤銆?-->
+  <div class="panel">
+    <div class="panel-title">馃暞锔?绛栫暐鏅烘収搴擄紙<span id="wisMatched">0</span> 鏉℃鍒婚€傜敤 / 鍏?<span id="wisTotal">0</span> 鏉′綔鎴樼瓥鐣ワ級</div>
+    <div id="wisList" class="wis-list"></div>
+  </div>
+
+  <!-- 4a 鍏瀷鍐崇瓥浜烘牸 -->
+  <div class="panel">
+    <div class="panel-title" id="personaHead">馃Л 鍏瀷鍐崇瓥浜烘牸 路 鎶夋嫨娴嬭瘯锛?0 棰?路 90 绉掞級</div>
+    <div class="guard-play">
+      <div id="personaWrap"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost" id="personaQuick">蹇€熸妷鎷╋紙3 棰橈級</button>
+        <button class="btn primary" id="personaGo" disabled>寮€濮?20 棰樻祴璇?/button>
+      </div>
+    </div>
+    <pre class="mod-result" id="personaResult" hidden>浣滅瓟 20 棰樺悗锛屽叚鍨嬬敾鍍忎細鏄剧ず鍦ㄨ繖閲屻€?/pre>
+  </div>
+
+  <!-- 4b 娲讳笅鍘绘墜鍐?-->
+  <div class="panel">
+    <div class="panel-title" id="manualHead">馃摉 娲讳笅鍘绘墜鍐岋紙12 鏈?路 鍏嶈垂鍏嶇櫥褰?路 浣垮懡灞傦級</div>
+    <div class="crisis-band" id="crisisBand">濡傛湁浼ゅ鑷繁鐨勬兂娉曪細鎷ㄦ墦 12356锛?4h锛夆啋 绯荤粺绔嬪嵆杞粙锛屼紭鍏堜簬涓€鍒囧姛鑳姐€?/div>
+    <div class="manual-grid" id="manualGrid"></div>
+    <div id="manualOpen" hidden style="margin-top:10px">鐐逛笂闈换涓€鏈墜鍐岋紝鍏ㄦ枃浼氬睍寮€鍦ㄨ繖閲屻€?/div>
+  </div>
+
+  <!-- 4c 鍚岃矾浜?-->
+  <div class="panel">
+    <div class="panel-title" id="peerHead">馃暞锔?鍚岃矾浜猴紙T1 鐏 / T2 閫掍竴鎶?/ T3 琚府璐︽湰锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="peerTopic" placeholder="浣犵殑澶勫鍏抽敭璇嶏紙濡傦細琚 / 鎯宠緸鑱?/ 璐熷€衡€︼級" style="flex:1;min-width:180px">
+      <button class="btn primary" id="peerLightGet">鐪嬪悓鍗︾伅瑙?/button>
+    </div>
+    <div id="peerLights" class="peer-lights" style="margin-top:8px"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+      <textarea class="ipt" id="peerStory" rows="2" placeholder="T1 鐐逛寒浣犵殑鐏細300 瀛椾互鍐咃紝妯℃澘涓夐棶鈥斺€斿綋鏃舵渶鎬曚粈涔?/ 绗竴姝ュ仛浜嗕粈涔?/ 鏈€鎯冲璋佽涓€鍙ヤ粈涔堬紙鍕鹃€変笅鏂规巿鏉冨悗鎻愪氦锛?></textarea>
+    </div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
+      <label style="color:var(--ink-2);font-size:12px"><input type="checkbox" id="peerOptin" checked> 鍚屾剰鍖垮悕鍖栧彂甯冿紙闅愯韩鍙殢鏃堕€€鍑猴級</label>
+      <button class="btn primary" id="peerLightAdd">鎻愪氦 T1 鈫?鐐逛寒鐏</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:12px;color:var(--ink-2)">T2 閫掍竴鎶婏紙闄?3 娆?鏃ワ級</div>
+        <select class="ipt" id="peerKind" style="width:100%">
+          <option value="card">閫掓墜鍐屽崱</option>
+          <option value="sentence">閫掍竴鍙ヨ瘽锛堚墹80瀛楋級</option>
+          <option value="resource">閫掔櫧鍚嶅崟璧勬簮</option>
+        </select>
+      </div>
+      <input class="ipt" id="peerPayload" placeholder="鎵嬪唽缂栧彿(濡?cai/zai) 鎴栦竴鍙ヨ瘽锛堥』杩囩姣旇緝/閲戦鍙ワ級" style="flex:2;min-width:200px">
+      <input class="ipt" id="peerFrom" placeholder="鎴?浠ｅ彿)" style="flex:1;min-width:120px">
+      <button class="btn" id="peerHandoff">閫掑嚭</button>
+    </div>
+    <pre class="mod-result" id="peerResult" hidden>鎻愪氦鍚岃矾浜虹敵璇峰悗锛屽鏍哥粨鏋滀細鏄剧ず鍦ㄨ繖閲屻€?/pre>
+  </div>
+
+  <!-- 4d 骞村害鎶ュ憡 + 姝㈡崯绾?-->
+  <div class="panel">
+    <div class="panel-title" id="annualHead">馃搳 骞村害鍐崇瓥鎶ュ憡 + 姝㈡崯绾?L1鈥揕4</div>
+    <div class="stoploss-grid" id="stopGrid"></div>
+    <pre class="mod-result" id="annualResult" hidden>鐢熸垚骞存姤鍚庯紝缁撹浼氭樉绀哄湪杩欓噷銆?/pre>
+  </div>
+
+  <!-- 4e 鍐呭澶嶇敤鍣?E1 -->
+  <div class="panel">
+    <div class="panel-title" id="repurpHead">馃攣 鍐呭澶嶇敤鍣?E1 路 涓€鏂欎簲鍚?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="repRaw" style="max-width:130px">
+        <option value="R2">R2 鍚岃矾浜虹礌鏉?/option>
+        <option value="R1">R1 妗堜緥鍗?/option>
+        <option value="R3">R3 鏁版嵁鍒囩墖</option>
+      </select>
+      <input class="ipt" id="repSource" placeholder="鏉ユ簮锛堝锛氳瑁佸悓璺汉 T1锛? style="flex:1;min-width:150px">
+      <input class="ipt" id="repText" placeholder="绱犳潗姝ｆ枃锛堚墹2000瀛楋紝鍙杺涓€娆★級" style="flex:2;min-width:220px">
+      <button class="btn primary" id="repFeed">鍏ュ簱</button>
+    </div>
+    <div class="rep-list" id="repList" style="margin-top:8px"></div>
+  </div>
+
+  <div class="sub" style="padding:8px 4px">銆屽悓鍦ㄥ畧鎶ゃ€嶏紳鍥涗唤銆屾垜涓€鐩村湪銆嶈鑼冪殑鍙墽琛岃惤鍦帮細鎶夋嫨娴嬭瘯锛圥2锛夈€佹椿涓嬪幓鎵嬪唽锛埪?.8锛夈€佸悓璺汉锛埪?.9锛夈€佸勾鎶ヤ笌姝㈡崯绾匡紙v19 A1 / FINAL-2.0 搂10.4锛夈€佸唴瀹瑰鐢ㄥ櫒锛圗1锛夈€?/div>
+</section>
+
+<!-- ===== 鎴樻儏瀹わ細鍙戝竷鍒楄溅 / 瀹㈡湇宸ュ崟 / 鍐峰惎鍔?Playbook / 鏁呬簨宸ュ巶 / MCP Agent-ready / 涓冩鎶ュ憡 ===== -->
+<section class="tab-pane" id="tab-warroom" hidden>
+  <div class="pane-head">
+    <div class="pane-title">鎴樻儏瀹?span class="tag">瀹炴椂鏁版嵁 路 鍥捐〃 路 浜哄憳鑴夌粶 路 鍦烘櫙鍔ㄦ€?/span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="warRefresh">鍒锋柊鍏ㄩ儴</button>
+    </div>
+  </div>
+  <!-- 绗?13 鏉★細鍥捐〃 + 浜哄憳鑴夌粶 + 鍦烘櫙鍔ㄦ€侊紝鍏ㄩ儴鐢?Canvas 鎵嬬粯锛岄浂澶栭儴渚濊禆 -->
+  <div class="panel">
+    <div class="panel-title">馃搱 杩?14 澶╄惀鏀惰秼鍔匡紙宸茬粨绠楀疄鏀?vs 寰呭埌璐︼級</div>
+    <canvas id="warRev" class="war-cv" width="900" height="200"></canvas>
+    <div id="warRevNote" class="sub"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃搳 鑾峰婕忔枟鍒嗗竷</div>
+    <canvas id="warFunnel" class="war-cv" width="900" height="170"></canvas>
+    <div id="warFunnelNote" class="sub"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃З 浠诲姟鐘舵€佹瀯鎴?/div>
+    <div id="warTaskPie" class="wb-grid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃懃 浜哄憳宸ヤ綔鑴夌粶锛堣皝鍦ㄥ姙浠€涔?路 鍔炰簡鍑犻」 路 瀹屾垚鍑犻」锛?/div>
+    <div id="warPeople" class="wb-people"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃幀 宸ヤ綔鍦烘櫙鍔ㄦ€侊紙杩?24h 绯荤粺瀹為檯鍙戠敓鐨勪簨锛?/div>
+    <div id="warScene" class="wb-scene"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摎 瀛︿範浜у嚭瓒嬪娍锛堟寜妯″潡鍫嗗彔锛?/div>
+    <canvas id="warLearn" class="war-cv" width="900" height="180"></canvas>
+  </div>
+
+  <!-- 涓冩鍐崇瓥鎶ュ憡 -->
+  <div class="panel">
+    <div class="panel-title">馃搫 涓冩鍐崇瓥鎶ュ憡锛團INAL-1.1 搂2.2 瀹硶绾?路 绗?娈电伅瑙掞級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="reportTopic" placeholder="浣犵殑涓婚锛堝锛氳瑁佸悗瑕佷笉瑕佺珛鍒诲洖鑰佸锛? style="flex:2;min-width:220px">
+      <input class="ipt" id="reportAnswer" placeholder="琛ュ厖淇℃伅锛堝彲閫夛級" style="flex:1;min-width:160px">
+      <button class="btn primary" id="reportGo">鐢熸垚涓冩鎶ュ憡</button>
+    </div>
+    <pre class="mod-result" id="reportResult" hidden></pre>
+  </div>
+
+  <!-- E4 鍙戝竷鍒楄溅 -->
+  <div class="panel">
+    <div class="panel-title" id="trainHead">馃殏 鍙戝竷鍒楄溅锛圗4 路 鍙屽懆涓€鐝?路 涓夋牸瑁呰浇锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="trainSlot" style="max-width:140px">
+        <option value="growth">澧為暱浠?/option>
+        <option value="retention">鐣欏瓨浠?/option>
+        <option value="debt">杩樺€轰欢</option>
+      </select>
+      <input class="ipt" id="trainTitle" placeholder="feature 鏍囬" style="flex:1;min-width:180px">
+      <button class="btn primary" id="trainLoad">瑁呰浇鏈彮</button>
+      <button class="btn" id="trainDepart">鍙戣溅</button>
+    </div>
+    <div class="auto-log" id="trainBox" style="margin-top:8px"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input class="ipt" id="parkIdea" placeholder="鏂版兂娉曠櫥璁?parking lot锛堢伀杞︿笉绛変汉锛宭ot 涓嶅垹锛? style="flex:1;min-width:220px">
+      <button class="btn ghost" id="parkGo">璁板叆 lot</button>
+    </div>
+    <pre class="mod-result" id="trainResult" hidden></pre>
+  </div>
+
+  <!-- E3 瀹㈡湇宸ュ崟 -->
+  <div class="panel">
+    <div class="panel-title" id="ticketHead">馃帿 瀹㈡湇宸ュ崟锛圗3 路 鍥涢€氶亾 / P0褰撴棩路72h / P1 48h / P2 鍛ㄦ壒锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="tickSubject" placeholder="涓婚锛堝锛氳鎵ｆ/寤鸿/鍔熻兘鏁呴殰鈥﹁嚜鍔ㄥ垎绾э級" style="flex:1;min-width:180px">
+      <input class="ipt" id="tickMsg" placeholder="宸ュ崟鍐呭" style="flex:2;min-width:220px">
+      <button class="btn primary" id="tickAdd">寮€鍗?/button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button class="btn" id="tickSunday" title="鑱氬悎瓒?7 澶╃殑 P2 宸ュ崟杩涘叆鍛ㄦ棩鍏卞缓鎵归槄鍦?>鍛ㄦ棩鍛ㄦ壒鑱氬悎</button>
+      <span class="sub" id="tickBatchInfo" style="font-size:12px;align-self:center"></span>
+    </div>
+    <div class="sub" style="padding:6px 2px" id="tickBoard"></div>
+    <div class="auto-log" id="tickList" style="margin-top:6px"></div>
+  </div>
+
+  <!-- E2 鍐峰惎鍔?Playbook -->
+  <div class="panel">
+    <div class="panel-title" id="playbookHead">馃尡 鍐峰惎鍔?Playbook锛圗2 路 D1鈥揇30 鏃ョ骇浣滄垬琛級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="pbLaunch">鍚姩锛堜粖澶?= D1锛?/button>
+      <button class="btn" id="pbCheck">浠婃棩鎵撳崱</button>
+      <input class="ipt" id="pbDay" placeholder="琛ユ墦鍗?D?(濡?12)" style="max-width:130px">
+      <button class="btn ghost" id="pbTallyReg">褰曟敞鍐屾暟</button>
+      <input class="ipt" id="pbReg" placeholder="娉ㄥ唽" style="max-width:90px">
+      <input class="ipt" id="pbPaid" placeholder="浠樿垂" style="max-width:90px">
+      <button class="btn ghost" id="pbTallyPaid">褰曚粯璐规暟</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px" id="pbDays"></div>
+    <div class="sub" style="padding:6px 2px" id="pbGate"></div>
+  </div>
+
+  <!-- 鏁呬簨宸ュ巶 -->
+  <div class="panel">
+    <div class="panel-title" id="foundryHead">馃枊锔?鏁呬簨宸ュ巶锛團INAL-1.2 路 S1鈥揝9 鍗婃墭绠℃祦姘寸嚎锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="fPeerId" style="flex:1;min-width:180px">
+        <option value="">浜旳 鎺堟潈鐏鈥?/option>
+      </select>
+      <select class="ipt" id="fManualNo" style="flex:1;min-width:150px">
+        <option value="">浜旴 鍏増鎵嬪唽鈥?/option>
+      </select>
+      <input class="ipt" id="fTitle" placeholder="涔﹀悕锛堝銆婃妷鎷╁織路琚銆嬶級" style="flex:1;min-width:150px">
+      <button class="btn primary" id="fCreate">绔嬮」 S1+S2</button>
+    </div>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--ink-2)">
+      <label><input type="checkbox" id="fDt" checked> 鏃堕棿铏氭瀯</label>
+      <label><input type="checkbox" id="fDc" checked> 鍩庡競铏氭瀯</label>
+      <label><input type="checkbox" id="fDj" checked> 鑱屼笟铏氭瀯</label>
+      <label><input type="checkbox" id="fDf"> 瀹跺涵铏氭瀯</label>
+      <span>澶嶈瘑鍒壈鍔ㄥ伐鑹猴細鑷冲皯 3 椤硅櫄鏋?/span>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px" id="fPipe"></div>
+    <div class="auto-log" id="fBoard" style="margin-top:6px"></div>
+  </div>
+
+  <!-- A13 MCP -->
+  <div class="panel">
+    <div class="panel-title" id="mcpHead">馃攲 Agent-ready锛圓13 路 涓夊伐鍏烽潰 路 deliberate 楼0.99锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="mcpDev" placeholder="寮€鍙戣€呯讲鍚? style="flex:1;min-width:150px">
+      <input class="ipt" id="mcpRecharge" placeholder="鍏呭€?楼锛堥浠橈級" style="max-width:120px">
+      <button class="btn primary" id="mcpIssue">绛惧彂 API key</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <input class="ipt" id="mcpKey" placeholder="API key" style="flex:1;min-width:170px">
+      <select class="ipt" id="mcpTool" style="max-width:220px">
+        <option value="decision.deliberate">decision.deliberate锛堝畬鏁存帹婕?楼0.99锛?/option>
+        <option value="case.search">case.search锛堟渚嬪崱妫€绱紝鍏嶈垂锛?/option>
+        <option value="manual.get">manual.get锛堟椿涓嬪幓鎵嬪唽锛屽厤璐癸級</option>
+      </select>
+      <input class="ipt" id="mcpParams" placeholder="topic / kw / slug" style="flex:2;min-width:200px">
+      <button class="btn" id="mcpCall">璋冪敤</button>
+    </div>
+    <div class="sub" style="padding:6px 2px" id="mcpStat"></div>
+    <pre class="mod-result" id="mcpResult" hidden>鍙戣捣涓€娆¤皟鐢紝杩斿洖缁撴灉浼氭樉绀哄湪杩欓噷銆?/pre>
+  </div>
+
+  <div class="sub" style="padding:8px 4px">鎴樻儏瀹わ紳绗簩缂栨柊绔嬮」鐨勫叏閮ㄥ彲鎵ц浠讹細E2 鍐峰惎鍔紙D1鈥揇30锛? E3 鍗曚汉瀹㈡湇锛堝洓閫氶亾涓夋椂闄愶級/ E4 鍙戝竷鍒楄溅锛堢増鏈伀杞︽満鍒讹級/ 鏁呬簨宸ュ巶锛圫1鈥揝9 + 鍒涗綔璇佹嵁鏃ュ織锛? A13 Agent-ready锛堜笁宸ュ叿+璁¤垂+涓変笉鎺ヨ竟鐣岋級/ 涓冩鎶ュ憡锛堝娉曠骇锛夈€備换浣曟柊鎯虫硶鍏堣 parking lot锛岀伀杞︿笉绛変汉銆?/div>
+</section>
+
+<!-- ===== 鍟嗕笟涓灑锛氳闃?/ 鎺掕姒?/ 24h鐩戞帶 / 鍗婂勾鍗冧竾 KPI ===== -->
+<section class="tab-pane" id="tab-subs" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃挸 璁㈤槄 路 鍏ㄧ珯鏀惰垂澧?<span class="tag">10 娆″厤璐规煡 路 鐢ㄥ畬璁㈤槄寮圭獥</span></div>
+    <div class="toolbar"><button class="btn ghost" id="subsRefresh">鍒锋柊</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title" id="subsQuotaCard">馃Ь 鎴戠殑棰濆害</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap" id="subsStatusBox"></div>
+    <div class="sub" id="inviteBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃 鎴戠殑娌夋穩锛堣繖浜涘彧灞炰簬浣?路 鍒版湡涓嶆竻绌猴級</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap" id="myAssetsBox"><span class="sub">鍔犺浇涓€?/span></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃洝锔?璁㈤槄鏂规锛堝井淇?鏀粯瀹濇敹 路 鍏ヨ处涓€寰嬫敮浠樺疂 路 鍒版湡鍓?7 澶╂彁閱掔画璐癸級</div>
+    <div class="subs-grid" id="subsPlansGrid"></div>
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap">
+      <input class="ipt" id="subsInviteCode" placeholder="鎴戠殑閭€璇风爜锛堣鎺ㄨ崘浜哄～鍐欙紝鍚勮繑 1-12 涓湀/浜猴級" style="flex:1;min-width:220px">
+      <button class="btn ghost" id="subsBind">缁戝畾閭€璇风爜</button>
+      <button class="btn primary" id="subsTestPay">馃Ь 杩愯惀瀵硅处 路 纭鍒拌处</button>
+    </div>
+  </div>
+  <div class="panel" id="subsPendingBox" hidden>
+    <div class="panel-title">鈴?寰呯‘璁よ鍗曪紙涔板浠樻鍚庝綘鏉ユ牳楠岋紝纭鍗冲叆璐?婵€娲昏闃咃級</div>
+    <pre class="mod-result" id="subsPending" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃Ь 璁㈠崟娴佹按锛堝叏閮ㄥ叆璐︽敮浠樺疂锛?/div>
+    <pre class="mod-result" id="subsOrders" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃挸 鏀舵閰嶇疆锛堣繍钀ヨ缃€斺€斾拱瀹舵壂鐮佺湅杩欓噷锛?/div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="opToken" placeholder="杩愯惀浠ょ墝锛堜簯鏈嶅姟鍣ㄤ笂鍏堝～姝わ紝鍐嶉厤鏀舵锛? style="flex:1;min-width:180px">
+      <button class="btn ghost" id="opTokenSave">淇濆瓨浠ょ墝</button>
+      <input class="ipt" id="payAccountCfg" placeholder="杩愯惀鐣欏瓨璐﹀彿锛堜粎杩愯惀鍙锛屼笉鍚戜拱瀹跺睍绀猴級" style="flex:1;min-width:200px">
+      <input class="ipt" id="payQrAlipay" placeholder="鏀粯瀹濇敹娆剧爜鍥剧墖 URL / base64" style="flex:2;min-width:220px">
+      <input class="ipt" id="payQrWechat" placeholder="寰俊鏀舵鐮佸浘鐗?URL / base64" style="flex:2;min-width:220px">
+      <button class="btn primary" id="payConfigSave">淇濆瓨鏀舵閰嶇疆</button>
+    </div>
+    <div class="sub" id="payConfigStatus">淇濆瓨鏀舵閰嶇疆鍚庯紝鐘舵€佷細鏄剧ず鍦ㄨ繖閲屻€?/div>
+  </div>
+  <div class="sub">璁㈤槄锛氶7澶╀綋楠?楼1锛堟瘡浜轰竴娆★級路 鏈堝害 楼99 路 瀛ｅ害 楼269锛堝悎 楼89.7/鏈堬級路 骞村害 楼899锛堝悎 楼74.9/鏈堬紝鐪?24%锛夈€傞個璇疯繑鍒╋細1 涓粯璐瑰ソ鍙嬶紙鈮ユ湀搴︼級鈫?杩?1 涓湀锛? 涓粯璐瑰ソ鍙嬶紙婊?3 涓浠橈級鈫?杩?3 涓湀锛?0 涓紙10脳骞翠粯锛夆啋 杩?1 骞达紱楼1 浣撻獙鍗曚笉璁″叆杩斿埄銆傛敹娆炬笭閬擄細鍥藉唴鐢ㄥ井淇?/ 鏀粯瀹濓紝娴峰鐢?PayPal锛涘叆璐︾粺涓€杩涙敮浠樺疂瀵瑰叕璐﹀彿锛堥摱琛岃处鍙蜂笉鍚戜拱瀹跺睍绀猴級銆?/div>
+</section>
+
+<section class="tab-pane" id="tab-rank" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃弳 鎺掕姒?<span class="tag">鍓嶄竴鍚嶅繀椤讳弗鏍兼瘮鍚庝竴鍚?鈮? 路 璋佽ˉ褰曡皝閲嶆帓</span></div>
+    <div class="toolbar"><button class="btn ghost" id="rankRefresh">鍒锋柊</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃搳 绉垎姒滐紙鍒嗭級</div>
+    <div id="rankScoreBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃挵 閲戦姒滐紙鍓嶄竴鍚嶆案杩滄瘮鍚庝竴鍚嶅 1 鍏冧互涓婏級</div>
+    <div id="rankMoneyBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鉁嶏笍 琛ュ綍锛堥噸鎺掑叏姒滐級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="rankField" style="max-width:140px">
+        <option value="score">绉垎姒滐紙鍒嗭級</option>
+        <option value="money">閲戦姒滐紙鍏冿級</option>
+      </select>
+      <input class="ipt" id="rankName" placeholder="涓婃鍚嶅瓧" style="flex:1;min-width:140px">
+      <input class="ipt" id="rankScore" placeholder="鍒嗘暟/閲戦锛堚墺0锛? style="max-width:140px">
+      <button class="btn primary" id="rankEnter">琛ュ綍 路 閲嶆帓</button>
+    </div>
+    <pre class="mod-result" id="rankResult" hidden>琛ュ綍涓婃鍚庯紝缁撴灉浼氭樉绀哄湪杩欓噷銆?/pre>
+    <div class="sub" id="rankIntegrity" style="margin-top:6px"></div>
+  </div>
+</section>
+
+<section class="tab-pane" id="tab-watch" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃洶锔?24h 鐩戞帶 路 鍛婅 <span class="tag">寮傚父鍗冲埢閭欢 鈫?460123249@qq.com</span></div>
+    <div class="toolbar"><button class="btn ghost" id="watchScan">绔嬪嵆宸℃</button><button class="btn ghost" id="watchRefresh">鍒锋柊</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃┖ 褰撳墠浣撴</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center" id="watchStatusBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃毃 鏈€鏂板憡璀︼紙30 鍒嗛挓鍐烽潤鏈熼槻杞扮偢锛?/div>
+    <pre class="mod-result" id="watchAlerts" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃洜锔?鑷姩鑷剤璁板綍锛圥olsia 鐩戞帶鑷剤锛氬彧淇‘瀹氭€у紓甯革紝涓嶆秹鐜伴噾/浠ｅ彂锛?/div>
+    <pre class="mod-result" id="watchHeals" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摦 閭欢澶栧彂璁板綍</div>
+    <pre class="mod-result" id="watchMailLog" hidden></pre>
+  </div>
+</section>
+
+<section class="tab-pane" id="tab-kpi" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃搱 鍗婂勾鍗冧竾 KPI <span class="tag">楼10,000,000 / 180 澶?路 鍏ヨ处鏀粯瀹?路 鑷姩璁℃彁 5% 鎺ㄥ箍璐?/span></div>
+    <div class="toolbar"><button class="btn ghost" id="kpiRefresh">鍒锋柊</button></div>
+  </div>
+<div class="panel">
+    <div class="panel-title">馃幆 杩涘害</div>
+    <div class="row" style="gap:14px;flex-wrap:wrap" id="kpiBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃殌 璧氶挶鐩爣鏃犱汉椹鹃┒锛堟殫绾?24h锛氭煡璇㈣繘灞?鈫?浼樺寲鐩爣 鈫?閫艰繎鐩爣锛?
+      <button class="btn small" style="margin-left:auto" onclick="window.__goalReport && window.__goalReport()">馃搫 澶嶇洏鎶ュ憡</button>
+    </div>
+    <pre class="mod-result" id="goalPilotBox">鍔犺浇涓€?/pre>
+    <pre class="mod-result" id="goalReportBox" style="display:none">鐐广€岎煋?澶嶇洏鎶ュ憡銆嶆媺鍙栨渶杩戜竴娆″鐩樸€?/pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃挵 钀ユ敹鍏ヨ处锛堣鏀粯瀹濓級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="moneyAmt" placeholder="閲戦 楼" style="max-width:140px">
+      <input class="ipt" id="moneySource" placeholder="鏉ユ簮锛堣闃?鍗曟/绉佹暀鈥︼級" style="flex:1;min-width:160px">
+      <select class="ipt" id="moneyMethod" style="max-width:140px">
+        <option value="鏀粯瀹?>鏀粯瀹濇敹娆?/option>
+        <option value="寰俊">寰俊鏀舵</option>
+        <option value="閾惰">閾惰杞处</option>
+      </select>
+      <button class="btn primary" id="moneyCredit">璁颁竴绗斿叆璐?/button>
+    </div>
+    <pre class="mod-result" id="moneyRevenues" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃摚 5% 鎺ㄥ箍璐瑰彴璐︼紙姣忚禋 1 鍏冭嚜鍔ㄨ鎻?5 鍒嗭紝鍙嚜涓绘姇鏀撅級</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="promoAmt" placeholder="鎶曟斁閲戦 楼" style="max-width:140px">
+      <input class="ipt" id="promoNote" placeholder="鎶曟斁鍘诲悜澶囨敞" style="flex:1;min-width:180px">
+      <button class="btn ghost" id="promoSpend">鎶曟斁鏀嚭</button>
+    </div>
+    <pre class="mod-result" id="moneyPromos" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃幆 鑾峰绾跨储锛堣嚜涓昏繍钀ラ摵甯傚満鐧昏锛?/div>
+    <pre class="mod-result" id="moneyLeads" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鈽€锔?CEO 鏅ㄦ姤锛堟瘡鏃ヤ究鏉?路 鍊熼壌 Polsia锛欰I CEO 姣忔棩瀹¤璐︽埛缁欏垱濮嬩汉鐣欎究鏉★級
+      <button class="btn small" style="margin-left:auto" onclick="window.__brief && window.__brief()">鐢熸垚浠婃棩渚挎潯</button>
+    </div>
+    <pre class="mod-result" id="ceoBriefBox">鍔犺浇涓€?/pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃 璺ㄥ叕鍙稿涔犅风粡楠屽簱锛圥olsia 缇や綋杩涘寲锛氭垚璐ョ粡楠屼簰鍝猴紝鍏ㄧ湡瀹炰簨浠舵矇娣€锛?/div>
+    <pre class="mod-result" id="lessonsBox">鍔犺浇涓€?/pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃搳 骞垮憡鎶曟斁 ROI锛堟笭閬撶骇褰掑洜锛岀函鐪熷疄鍙拌处 路 楂?ROI 娓犻亾鍔犲ぇ銆佷綆 ROI 闄嶆潈锛?/div>
+    <pre class="mod-result" id="roiBox">鍔犺浇涓€?/pre>
+  </div>
+</section>
+
+<!-- ===== 婕忔枟鐪嬫澘 ===== -->
+<section class="tab-pane" id="tab-funnel" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃搳 婕忔枟鐪嬫澘 <span class="tag green">鍏ㄩ摼璺叚闃舵 路 姣忔棩蹇収</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="funnelRefresh">鍒锋柊</button>
+      <select class="ipt" id="funnelDays" style="max-width:130px">
+        <option value="7">鏈€杩?7 澶?/option>
+        <option value="14" selected>鏈€杩?14 澶?/option>
+        <option value="30">鏈€杩?30 澶?/option>
+        <option value="90">鏈€杩?90 澶?/option>
+      </select>
+    </div>
+  </div>
+  <div class="stat-row" id="funnelSummary"></div>
+  <div class="panel">
+    <div class="panel-title">馃搱 婕忔枟瓒嬪娍鍥?/div>
+    <div id="funnelChart" style="height:320px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃搵 闃舵鍒楄〃</div>
+    <div class="funnel-stages" id="funnelStages"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃攳 涓嬮捇璇︽儏</div>
+    <select class="ipt" id="funnelDrillStage" style="max-width:200px">
+      <option value="">閫夋嫨闃舵鏌ョ湅璇︽儏</option>
+    </select>
+    <div id="funnelDrill" class="sub">閫夋嫨涓婃柟闃舵鏌ョ湅鏄庣粏</div>
+  </div>
+  <div class="panel" id="crmPanel">
+    <div class="panel-title">馃Л 鍟嗘満鎺ㄨ繘锛圕RM-lite锛?<span class="tag">绾跨储 鈫?鍟嗘満 鈫?鎴愪氦 鈫?澶嶈喘</span></div>
+    <div class="sub" id="crmNote"></div>
+    <div class="stat-row" id="crmSummary"></div>
+    <div id="crmOpps"></div>
+  </div>
+</section>
+
+<!-- 鑳藉姏鍏ㄦ櫙锛氭妸銆屾湁浠€涔?/ 鐢ㄦ埛鑳界敤鍝簺 / 宸湪鍝€嶆憜鍒板彴闈笂 -->
+<section class="tab-pane" id="tab-capmap" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃Л 鑳藉姏鍏ㄦ櫙 <span class="tag">鑷姩鐩樼偣 路 鏌ョ己琛ユ紡</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="capmapRefresh">鍒锋柊</button>
+      <select class="ipt" id="capmapTopic" style="max-width:180px">
+        <option value="all" selected>鍏ㄩ儴涓婚</option>
+      </select>
+    </div>
+  </div>
+  <div class="stat-row" id="capmapSummary"></div>
+  <div class="panel">
+    <div class="panel-title">鈿狅笍 绌鸿浆鏈哄埗锛堝缓濂戒簡浣嗕粠鏈繍琛岋級</div>
+    <div id="capmapIdle" class="sub">鍔犺浇涓€?/div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃暢锔?鐢ㄦ埛澶熶笉鍒扮殑鑳藉姏锛堝仛鍑烘潵浜嗕絾娌℃湁鍏ュ彛锛?/div>
+    <div class="sub" style="margin-bottom:10px">
+      杩欎簺鑳藉姏鍦ㄥ悗绔凡瀹炵幇骞舵湁 HTTP 绔偣锛屼絾鍓嶇娌℃湁浠讳綍鍦版柟鑳借Е鍙戝畠浠€?
+      瀹冧滑涓嶄細鑷繁娑堝け鈥斺€斿彧鑳借浜轰富鍔ㄦ兂璧锋潵鎵嶄細琛ワ紝鎵€浠ヨ繖浠芥竻鍗曡瀹氭湡鐪嬨€?
+    </div>
+    <div id="capmapGaps" class="sub">鍔犺浇涓€?/div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">鉁?鍓嶇鍏ュ彛</div>
+    <div id="capmapTabs" class="sub">鍔犺浇涓€?/div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">馃Л 澶嶇敤閫夊瀷 SOP锛堝厛妫€绱㈠鐢紝鍐嶉€狅級</div>
+    <div class="sub" style="margin-bottom:10px">
+      閫犳柊杞瓙鍓嶅繀璧扮殑浜旀銆?b>Step 0 鏄棬绂?/b>锛氳嚜鏈夎兘鍔涘凡瑕嗙洊灏卞仠涓嬪埆鍐欍€?
+      鍗忚鏄?Step 1 鐨勭‖闂革細GPL/AGPL 鏈変紶鏌撴€э紙AGPL 杩炪€屽彧鎻愪緵 SaaS 涓嶅垎鍙戙€嶉兘瑙﹀彂锛夛紝
+      MIT/Apache 瀹芥澗浣嗚鐪?NOTICE 涓庝笓鍒╂潯娆撅紱鍗忚 unknown 涓€寰嬩笉璁稿線涓嬭蛋銆?
+      Star 澶氥€佹洿鏂板嫟閮戒笉绛変簬鑳界敤銆?
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <input class="ipt" id="sopNeed" placeholder="瑕佸仛鐨勪簨锛屽锛氫换鍔￠槦鍒?/ 閫€娆捐璐? style="flex:1;min-width:220px">
+      <button class="btn" id="sopGate">Step 0 闂ㄧ锛氬厛鍒啓</button>
+    </div>
+    <div id="sopGateResult" class="sub" style="margin-bottom:12px"></div>
+    <div class="sub" style="margin-bottom:6px"><b>鍊欓€変粨搴?/b>锛圝SON 鏁扮粍锛汼OP 涓嶈嚜宸辨悳锛屼繚璇佸彲绂荤嚎澶嶇畻銆佷笉浜х敓骞昏锛?/div>
+    <textarea class="ipt" id="sopCandidates" rows="6" style="width:100%;font-family:ui-monospace,monospace;font-size:11px" placeholder='[{"repo":"user/lib","facts":{"license":"MIT","stars":5200,"forks":340,"pushedAt":"ISO鎴栨绉?,"archived":false,"openIssues":12,"createdAt":"...","lang":"JavaScript","fileCount":90,"hasPackageJson":true,"hasDockerfile":true,"hasTests":true,"hasCI":true,"runtime":"node","depsCount":5,"reachable":true,"exists":true,"probeStatus":200}}]'></textarea>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn primary" id="sopRunFull">璺戝畬鏁翠簲姝?/button>
+      <input class="ipt" id="sopRate" type="number" placeholder="鏃惰柂(鍏?灏忔椂锛屽彲绌?" style="max-width:170px">
+    </div>
+    <div id="sopRunResult" style="margin-top:12px"></div>
+  </div>
+</section>
+
+<!-- 鍚堣涓績锛歅CI-DSS / GDPR / CAN-SPAM / 绋庡姟KYC 涓€灞忕湅榻?-->
+<section class="tab-pane" id="tab-compliance" hidden>
+  <div class="pane-head">
+    <div class="pane-title">馃洝锔?鍚堣涓績 <span class="tag">鑷煡 路 闈炴硶寰嬫剰瑙?/span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="complianceRefresh">鍒锋柊</button>
+      <select class="ipt" id="complianceCtx" style="max-width:200px">
+        <option value="payment">鏀粯鍦烘櫙</option>
+        <option value="outreach">澶栧彂瑙﹁揪</option>
+        <option value="lead">绾跨储/闅愮</option>
+        <option value="partner">鍚堜紮浜哄垎娑?/option>
+        <option value="global">鍏ㄩ儴</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃搵 钀藉湴鑷锛堟湭钀藉湴椤瑰瀹炲垪鍑猴級</div>
+    <div id="complianceAudit" class="sub">鍔犺浇涓€?/div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃摐 鍦烘櫙鍚堣澹版槑</div>
+    <div class="sub" style="margin-bottom:10px">
+      鎸夐€傜敤鍦烘櫙杩囨护銆傛樉绀虹殑鏄?鎴戜滑瀵瑰澹版槑浜嗕粈涔?锛岄厤鍚堜笂鏂硅嚜瀹℃墠鐭ラ亾鍝簺杩樺樊銆?
+    </div>
+    <div id="complianceClauses"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">馃Ч 闅愮鏉冩搷浣滐紙GDPR Art.15/17锛?/div>
+    <div class="sub" style="margin-bottom:10px">
+      琚仐蹇樻潈锛氬尶鍚嶅寲鏌愮嚎绱㈢殑涓汉鏁版嵁锛堝鍚?鑱旂郴鏂瑰紡/瀵硅瘽鍐呭锛夛紝<b>涓嶅垹闄ゅ凡鎴愪氦鐨勮储鍔″嚟璇?/b>锛堣处瀹炲垎绂伙級銆傚叏绋嬬暀瀹¤銆?
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="privacyLeadId" placeholder="绾跨储 ID" style="max-width:220px">
+      <label class="sub" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="privacyDeep"> 娣卞害妯″紡锛堝叏瀛楁鎵弿锛岃緝鎱級
+      </label>
+      <button class="btn" id="privacyErase">鎵ц琚仐蹇?/button>
+      <button class="btn ghost" id="privacyExport">瀵煎嚭璇ョ嚎绱㈡暟鎹?/button>
+    </div>
+    <pre id="privacyResult" class="code" style="max-height:220px;margin-top:10px;display:none"></pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">鈿狅笍 璇氬疄杈圭晫</div>
+    <div id="complianceHonesty" class="sub">met 琛ㄧず鏈夊彲鑷姩鍒ゆ嵁鏀拺鐨勫疄鐜帮紝涓嶆瀯鎴愭硶寰嬫剰瑙侊紱unmet 琛ㄧず灏氭棤钀藉湴鏈哄埗锛岄渶瑕佷汉浠嬪叆銆?/div>
+  </div>
+</section>
+<div class="ask-modal" id="wallOverlay" hidden>
+  <div class="ask-card wall-card">
+    <div class="card-t" id="wallTitle">馃敀 鍏嶈垂娆℃暟宸茬敤瀹?/div>
+    <div class="sub" id="wallMsg" style="margin:8px 0">璁㈤槄鍚庤В閿佸叏閮ㄥ姛鑳姐€傛敮鎸佸井淇?/ 鏀粯瀹濓紝鍏ヨ处涓€寰嬭繘鏀粯瀹濄€?/div>
+    <div id="wallPlans"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" id="wallLater">鍐嶉€涢€?/button>
+    </div>
+    <div class="sub" id="wallHint" style="margin-top:8px">鎻愮ず锛氭湰婕旂ず鐜鐪熷疄閭欢涓?QQ SMTP锛涙敮浠樹负鐪熷疄鏀舵锛堟敮浠樺疂/寰俊锛岃繍钀ュ璐﹀悗婵€娲伙紝鍏ヨ处涓€寰嬭繘鏀粯瀹濓級銆?/div>
+  </div>
+</div>
+
+<!-- 浠樻寮圭獥锛堢湡瀹炴敹娆撅級 -->
+<div class="ask-modal" id="payOverlay" hidden>
+  <div class="ask-card">
+    <div class="card-t">馃挸 鎵爜浠樻 路 杞处璇峰娉ㄨ鍗曞彿</div>
+    <div class="sub" id="payPlan" style="margin:8px 0"></div>
+    <div class="sub">璁㈠崟鍙凤細<b id="payOrderId"></b></div>
+    <div class="sub">鏀舵璐﹀彿锛?b id="payAccount"></b></div>
+    <div id="payQr"></div>
+    <div class="sub" id="payHint" style="margin:8px 0;color:var(--danger)"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" id="payLater">绋嶅悗浠樻</button>
+      <button class="btn primary" id="payDone">鎴戝凡浠樻</button>
+    </div>
+    <div class="sub" id="payPaid" style="margin-top:8px" hidden>宸叉彁浜わ紝绛夊緟杩愯惀纭鍒拌处鍚庤嚜鍔ㄦ縺娲伙紙绾?5 绉掓娴嬩竴娆★級銆傚叧闂湰椤典笉褰卞搷锛屽洖鍒拌闃呴潰鏉夸細鍒锋柊鐘舵€併€?/div>
+  </div>
+</div>
+
+  <!-- ===== gtm: 鑾峰甯傚満 ===== -->
+  <section class="tab-pane" id="tab-gtm" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="gtm.title">鑾峰甯傚満 路 ICP 涓庤Е杈惧簭鍒?/div>
+      <div class="sub" data-i18n="gtm.sub">瀹氫箟鐞嗘兂瀹㈡埛鐢诲儚锛圛CP锛夛紝閰嶇疆澶氭笭閬撹Е杈惧簭鍒楋紝瀹炴椂鐪嬫澘杩借釜婕忔枟杞寲銆?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="gtmRefresh" data-i18n="gtm.refresh">鍒锋柊鏁版嵁</button>
+        <button class="btn" id="gtmDiag" data-i18n="gtm.diagnose">璇氬疄浣撴</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="gtm.icps">ICP 鐢诲儚搴?/h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="gtmIcpTbl">
+          <thead><tr><th>浠ｅ彿</th><th>鍚嶇О</th><th>琛屼笟</th><th>瑙勬ā</th><th>鐥涚偣</th><th>棰勭畻甯?/th><th>鍐崇瓥閾?/th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.sequences">瑙﹁揪搴忓垪</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="gtmSeqTbl">
+          <thead><tr><th>ID</th><th>ICP</th><th>娓犻亾</th><th>姝ラ</th><th>妯℃澘鎽樿</th><th>闂撮殧</th><th>鐘舵€?/th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.landing">钀藉湴椤垫枃妗堥瑙?/h4>
+      <div class="row" style="gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <select id="gtmLandingIcp" class="inp" style="min-width:180px"></select>
+        <button class="btn" id="gtmGenLanding" data-i18n="gtm.genLanding">鐢熸垚鏂囨</button>
+      </div>
+      <pre id="gtmLandingOut" class="code" style="max-height:260px;display:none"></pre>
+      <div id="gtmLandingEdit" hidden></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.funnelDetail">婕忔枟涓嬮捇璇︽儏</h4>
+      <div id="gtmFunnelDetail" class="sub">鐐瑰嚮涓婃柟婕忔枟鍥剧殑鏌愪釜闃舵鏉℃煡鐪嬭闃舵绾跨储</div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="card-t" data-i18n="gtm.funnelTitle">鑾峰婕忔枟鐪嬫澘</div>
+      <div id="gtmFunnelSvg" style="height:220px"></div>
+      <div class="sub" id="gtmFunnelMeta" style="margin-top:6px"></div>
+    </div>
+  </section>
+
+  <!-- ===== partner: 鍚堜紮浜哄垎閿€ ===== -->
+  <section class="tab-pane" id="tab-partner" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="partner.title">鍚堜紮浜哄垎閿€ 路 鎷涘嫙涓庣粨绠?/div>
+      <div class="sub" data-i18n="partner.sub">绠＄悊鍚堜紮浜烘嫑鍕熴€佷氦浠橀獙鏀躲€佸垎鎴愮粨绠楀叏娴佺▼銆?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="partnerRefresh" data-i18n="partner.refresh">鍒锋柊鏁版嵁</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="partner.enroll">鎷涘嫙鐢宠</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerEnrollTbl">
+          <thead><tr><th>ID</th><th>濮撳悕</th><th>鑱旂郴鏂瑰紡</th><th>娓犻亾</th><th>鐘舵€?/th><th>鐢宠鏃堕棿</th><th>鎿嶄綔</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.deliver">浜や粯楠屾敹</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerDeliverTbl">
+          <thead><tr><th>ID</th><th>鍚堜紮浜?/th><th>瀹㈡埛</th><th>閲戦</th><th>鐘舵€?/th><th>楠屾敹鏃堕棿</th><th>鎿嶄綔</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.deliverDetail">浜や粯鏄庣粏锛堢偣鍑讳笂琛ㄨ鏌ョ湅锛?/h4>
+      <div id="partnerDeliverDetail" class="sub">鐐瑰嚮涓婅〃鏌愯鏌ョ湅浜や粯鏄庣粏锛氭湇鍔″唴瀹广€佷氦浠樼墿銆佸伐鏃躲€佹垚浜ら銆佸垎娑?/div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.settle">鍒嗘垚缁撶畻</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerSettleTbl">
+          <thead><tr><th>ID</th><th>鍚堜紮浜?/th><th>搴旂粨绠?/th><th>宸茬粨绠?/th><th>鐘舵€?/th><th>鎿嶄綔</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== cashier: 鏀堕摱鍙?===== -->
+  <section class="tab-pane" id="tab-cashier" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="cashier.title">鏀堕摱鍙?路 缁熶竴鏀朵粯娆句腑蹇?/div>
+      <div class="sub" data-i18n="cashier.sub">鑱氬悎鎵€鏈夋敮浠橀€氶亾銆佽鍗曟煡璇€佹彁鐜扮粨绠椼€佽祫閲戠湅鏉裤€佹帹骞胯垂棰勭畻銆佺嚎绱㈣惀鏀躲€佹牳閿€璁板綍銆?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="cashierRefresh" data-i18n="cashier.refresh">鍒锋柊鍏ㄩ噺</button>
+        <button class="btn" id="cashierDiag" data-i18n="cashier.diag">閫氶亾鑷</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="cashier.channels">鏀粯閫氶亾鐘舵€?/h4>
+      <div id="cashierChannels" class="row" style="flex-wrap:wrap;gap:8px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.kpi">璧勯噾鐪嬫澘</h4>
+      <div id="cashierKpi" class="row" style="flex-wrap:wrap;gap:12px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.promo">鎺ㄥ箍璐归绠楁睜</h4>
+      <div id="cashierPromo" class="row" style="flex-wrap:wrap;gap:12px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.leads">绾跨储钀ユ敹璁板綍</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="cashierLeadsTbl">
+          <thead><tr><th>ID</th><th>绾跨储</th><th>閲戦</th><th>鐘舵€?/th><th>鏉ユ簮</th><th>鍒涘缓鏃堕棿</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.payout">鎻愮幇/缁撶畻绠＄悊</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="cashierPayoutTbl">
+          <thead><tr><th>绫诲瀷</th><th>瀵硅薄</th><th>閲戦</th><th>鐘舵€?/th><th>鏃堕棿</th><th>鎿嶄綔</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.writeoff">鏍搁攢璁板綍</h4>
+      <div class="scrollable" style="max-height:200px">
+        <table class="tbl" id="cashierWriteoffTbl">
+          <thead><tr><th>ID</th><th>璁㈠崟</th><th>閲戦</th><th>绫诲瀷</th><th>鏃堕棿</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.payoutConfig">鎻愮幇璐︽埛閰嶇疆</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" id="payoutBank" class="inp" placeholder="閾惰鍚嶇О" style="width:160px">
+        <input type="text" id="payoutAccount" class="inp" placeholder="璐﹀彿" style="width:200px">
+        <input type="text" id="payoutName" class="inp" placeholder="鎴峰悕" style="width:140px">
+        <input type="text" id="payoutBranch" class="inp" placeholder="鏀" style="width:180px">
+        <button class="btn primary" id="payoutConfigSave" data-i18n="cashier.saveConfig">淇濆瓨閰嶇疆</button>
+      </div>
+      <pre id="payoutConfigResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.instruction">鎵撴鎸囦护</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <select id="instructionType" class="inp" style="width:140px">
+          <option value="partner">鍚堜紮浜哄垎娑?/option>
+          <option value="supplier">渚涘簲鍟嗕粯娆?/option>
+          <option value="refund">閫€娆?/option>
+          <option value="other">鍏朵粬</option>
+        </select>
+        <input type="text" id="instructionTarget" class="inp" placeholder="鏀舵鏂笽D/鍚嶇О" style="width:180px">
+        <input type="number" id="instructionAmount" class="inp" placeholder="閲戦(鍒?" value="1000" style="width:120px">
+        <input type="text" id="instructionRemark" class="inp" placeholder="澶囨敞" style="width:200px">
+        <button class="btn primary" id="instructionCreate" data-i18n="cashier.createInstruction">鍒涘缓鎸囦护</button>
+      </div>
+      <pre id="instructionResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.dunning">鍌绠＄悊</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" id="dunningTarget" class="inp" placeholder="鍌瀵硅薄ID/鍚嶇О" style="width:200px">
+        <input type="number" id="dunningAmount" class="inp" placeholder="閲戦(鍒?" value="0" style="width:120px">
+        <select id="dunningChannel" class="inp" style="width:140px">
+          <option value="wechat">浼佷笟寰俊</option>
+          <option value="sms">鐭俊</option>
+          <option value="email">閭欢</option>
+        </select>
+        <button class="btn" id="dunningSend" data-i18n="cashier.sendDunning">鍙戦€佸偓娆?/button>
+      </div>
+      <pre id="dunningResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.checkout">鍒涘缓鏀舵鍗曪紙娴嬭瘯锛?/h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="number" id="checkoutAmt" class="inp" placeholder="閲戦(鍒?" value="100" style="width:120px">
+        <select id="checkoutChannel" class="inp" style="width:140px">
+          <option value="alipay">鏀粯瀹?/option>
+          <option value="paypal">PayPal</option>
+          <option value="moltspay">MoltSpay</option>
+        </select>
+        <input type="text" id="checkoutSubject" class="inp" placeholder="鍟嗗搧鍚? value="娴嬭瘯鍟嗗搧" style="width:160px">
+        <button class="btn primary" id="checkoutCreate" data-i18n="cashier.createOrder">鍒涘缓璁㈠崟</button>
+      </div>
+      <pre id="checkoutResult" class="code" style="max-height:180px;display:none"></pre>
+    </div>
+  </section>
+
+  <!-- ===== outreach: 澶栧彂瑙﹁揪 ===== -->
+  <section class="tab-pane" id="tab-outreach" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="outreach.title">澶栧彂瑙﹁揪 路 绾跨储瑙﹁揪璁板綍涓庨厤棰?/div>
+      <div class="sub" data-i18n="outreach.sub">鏌ョ湅姣忔棩瑙﹁揪璁板綍銆侀厤棰濅娇鐢ㄣ€佹笭閬撴晥鏋溿€佸け璐ュ師鍥犲垎鏋愩€?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="outreachRefresh" data-i18n="outreach.refresh">鍒锋柊鏁版嵁</button>
+        <select id="outreachChannel" class="inp" style="width:140px">
+          <option value="">鍏ㄩ儴娓犻亾</option>
+          <option value="email">閭欢</option>
+          <option value="wechat">浼佷笟寰俊</option>
+          <option value="sms">鐭俊</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+        <input type="date" id="outreachDate" class="inp" style="width:140px">
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="outreach.quota">浠婃棩閰嶉</h4>
+      <div id="outreachQuota" class="row" style="flex-wrap:wrap;gap:12px;margin-bottom:12px"></div>
+
+      <h4 data-i18n="outreach.records">瑙﹁揪璁板綍</h4>
+      <div class="scrollable" style="max-height:400px">
+        <table class="tbl" id="outreachRecordsTbl">
+          <thead><tr><th>ID</th><th>绾跨储</th><th>娓犻亾</th><th>鐘舵€?/th><th>鍐呭鎽樿</th><th>閰嶉鍗犵敤</th><th>鏃堕棿</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="outreach.stats">娓犻亾鏁堟灉缁熻</h4>
+      <div id="outreachStats" class="row" style="flex-wrap:wrap;gap:12px"></div>
+    </div>
+  </section>
+
+  <!-- ===== commercial-loop: 鍟嗕笟闂幆 ===== -->
+  <section class="tab-pane" id="tab-commercial-loop" hidden>
+    <div class="card">
+      <div class="card-t">馃攧 鍟嗕笟闂幆</div>
+      <div class="sub">鑾峰 鈫?娌熼€?鈫?鎴愪氦 鈫?鏀粯 鈫?鐗╂祦 鈫?灞ョ害 鈫?鍞悗 鈫?鑷垜杩涘寲銆傛瘡涓樁娈靛瀹炴姤鍛婃槸鍚︽湁鐪熷疄鏁版嵁鍦ㄦ祦杞€?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="clRefresh">鍒锋柊闂幆</button>
+      </div>
+      <div id="clSummary" style="margin-top:12px"></div>
+      <div id="clStages" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px"></div>
+      <div id="clEvidence" style="margin-top:12px"></div>
+      <div id="clNext" style="margin-top:12px;padding:8px 12px;background:#1a2a3a;border-radius:6px;font-size:13px"></div>
+    </div>
+  </section>
+
+  <!-- ===== convert: 绾跨储杞寲 ===== -->
+  <section class="tab-pane" id="tab-convert" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="convert.title">绾跨储杞寲 路 鎴愪氦涓庢紡鏂椾笅閽?/div>
+      <div class="sub" data-i18n="convert.sub">浠庣嚎绱㈠埌鎴愪氦鐨勫畬鏁存紡鏂楋紝鏀寔涓嬮捇鍒板崟鏉＄嚎绱㈡煡鐪嬭Е杈惧巻鍙层€佽窡杩涜褰曘€佹垚浜よ鎯呫€?/div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="convertRefresh" data-i18n="convert.refresh">鍒锋柊婕忔枟</button>
+        <select id="convertStage" class="inp" style="width:160px">
+          <option value="">鍏ㄩ儴闃舵</option>
+          <option value="new">鏂扮嚎绱?/option>
+          <option value="contacted">宸茶Е杈?/option>
+          <option value="qualified">鍚堟牸绾跨储</option>
+          <option value="proposal">鎶ヤ环涓?/option>
+          <option value="negotiation">璋堝垽涓?/option>
+          <option value="won">宸叉垚浜?/option>
+          <option value="lost">宸叉祦澶?/option>
+        </select>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="convert.funnel">杞寲婕忔枟</h4>
+      <div id="convertFunnelSvg" style="height:240px"></div>
+      <div class="sub" id="convertFunnelMeta" style="margin-top:6px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="convert.leads">绾跨储鍒楄〃锛堝彲涓嬮捇锛?/h4>
+      <div class="scrollable" style="max-height:400px">
+        <table class="tbl" id="convertLeadsTbl">
+          <thead><tr><th>ID</th><th>鍚嶇О</th><th>闃舵</th><th>閲戦</th><th>娓犻亾</th><th>鏈€鍚庤窡杩?/th><th>鎿嶄綔</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="convert.detail">绾跨储璇︽儏锛堢偣鍑昏鏌ョ湅锛?/h4>
+      <div id="convertDetail" class="sub">鐐瑰嚮涓婅〃鏌愯鏌ョ湅瑙﹁揪鍘嗗彶銆佽窡杩涜褰曘€佹垚浜よ鎯?/div>
+    </div>
+  </section>
+
+  <div class="ask-modal" id="askOverlay" hidden>
+  <div class="ask-card">
+    <div class="card-t" id="askTitle">鎶€鑳借皟鐢?/div>
+    <textarea id="askArgs" rows="3" placeholder='鍙傛暟锛堝锛歲=鍖椾含 鎴?text=杩欐鍐呭鍊煎緱璇勪及鈥︼級'></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px">
+      <button class="btn ghost" id="askCancel">鍙栨秷</button>
+      <button class="btn primary" id="askGo">鎵ц</button>
+    </div>
+    <pre id="askResult" class="ask-result" hidden></pre>
+  </div>
+</div>
+
+  </main>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<div class="confirm" id="overlay" hidden><div class="confirm-card" id="confirmCard"></div></div>
+
+<!-- 宸︽爮鑷€傚簲锛堝厜鏍囬潬鎷㈡樉鐜?/ 姹夊牎閿佸畾 / 鏀惰捣鎶婃墜锛夌敱 ui.js 鎻愪緵銆?
+     銆?026-09 淇銆戞鍓?ui.js 鏍规湰娌℃湁琚紩鐢?鈥斺€?鏂囦欢鍦ㄧ鐩樹笂锛屼絾椤甸潰浠庝笉鍔犺浇瀹冿紝
+     瀵艰嚧 #navBurger / #navPeek 鐨勪簨浠跺叏閮ㄦ病缁戝畾锛屽乏鏍忔案杩滃仠鍦?translateX(-106%)锛?
+     琛ㄧ幇涓恒€屽乏杈规爮鐩墦涓嶅紑銆嶏紝涓旀帶鍒跺彴鏃犱换浣曟姤閿欙紙IIFE 閲?getElementById 鎷夸笉鍒板氨闈欓粯 return锛夈€?
+     鏀惧湪 app.js 涔嬪墠锛歶i.js 璐熻矗甯冨眬灞傜殑寮€鍚堢姸鎬侊紝app.js 璐熻矗 tab 鍒囨崲銆?-->
+<!-- 鏋勫缓鎴筹細鏀瑰墠绔悗鏀规澶勭増鏈彿锛屾祻瑙堝櫒寮哄埗鍙栨柊浠ｇ爜锛堟湇鍔＄ HTML 宸?no-store锛屽弻淇濋櫓锛?-->
+<script>window.BD_BUILD = '20261015c';</script>
+<script src="i18n.js?v=20261015c"></script>
+<script src="ui.js?v=20261015c"></script>
+<script src="vendor/chart.umd.min.js?v=20261015c"></script>
+<script src="app.js?v=20261015c"></script>
+<script src="biz.js?v=20261015c"></script>
+<script src="convert.js?v=20261015c"></script>
+<script src="capture.js?v=20261015c"></script>
+<script src="zodiac.js?v=20261015c"></script>
+<script src="geo.js?v=20261015c"></script>
+<!-- PWA 瑁呴厤锛氭敞鍐岀绾垮澹炽€備粎鍦?http(s) 涓嬬敓鏁堬紙file:// 鎵撳紑浼氳嚜鍔ㄨ烦杩囷級銆?-->
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () { /* 绂荤嚎鑳藉姏涓嶅彲鐢ㄤ笉褰卞搷鍦ㄧ嚎浣跨敤 */ });
+  });
+  // 渚?绯荤粺璁剧疆"椤靛睍绀哄畨瑁呮寚寮曪細鎹曡幏鍙畨瑁呬簨浠?
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    window.__bdInstallPrompt = e;
+    document.dispatchEvent(new CustomEvent('bd-installable'));
+  });
+})();
+</script>
+</body>
+</html>

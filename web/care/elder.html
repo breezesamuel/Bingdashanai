@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>丙大山陪护 · 老人端</title>
+<link rel="manifest" href="/care/manifest.webmanifest">
+<style>
+  :root { --bg:#0b1020; --panel:#151d36; --line:#2b3763; --fg:#f2f5ff; --dim:#a8b3d6; --red:#e5484d; --green:#3ddc97; --amber:#ffc857; --blue:#6ea8fe; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.7 "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; padding:18px 14px 90px; }
+  .top { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .top h1 { font-size:22px; margin:0; flex:1; }
+  .lang button { font:inherit; font-size:14px; background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .lang button.on { color:var(--fg); border-color:var(--blue); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:14px; }
+  .card h2 { font-size:18px; margin:0 0 10px; color:var(--dim); font-weight:600; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+  .chip { font-size:14px; padding:5px 12px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .chip.ok { color:var(--green); border-color:#1f6f52; }
+  .chip.bad { color:var(--red); border-color:#7a2b2b; }
+  .sos { width:100%; min-height:168px; border:0; border-radius:22px; background:linear-gradient(180deg,#ff5a5f,#c62828); color:#fff; font-size:40px; font-weight:800; letter-spacing:3px; box-shadow:0 10px 30px rgba(229,72,77,.35); cursor:pointer; }
+  .sos:active { transform:scale(.985); }
+  .sos[disabled] { opacity:.6; }
+  .sosNote { text-align:center; color:var(--dim); font-size:15px; margin-top:10px; }
+  .task { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); }
+  .task:last-child { border-bottom:0; }
+  .task .t { flex:1; font-size:19px; }
+  .task .due { color:var(--dim); font-size:14px; }
+  .btn { font:inherit; font-size:17px; padding:12px 18px; border-radius:12px; border:1px solid var(--line); background:#1d2a4f; color:var(--fg); cursor:pointer; }
+  .btn.primary { background:#1d4ed8; border-color:#2f6bff; }
+  .btn.green { background:#136b4a; border-color:#1f8f63; }
+  .btn:disabled { opacity:.5; }
+  .list { display:flex; flex-direction:column; gap:10px; }
+  .item { background:#111a31; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:16px; }
+  .item .meta { color:var(--dim); font-size:13px; margin-top:4px; }
+  .empty { color:var(--dim); font-size:16px; }
+  .toast { position:fixed; left:14px; right:14px; bottom:24px; padding:16px 18px; border-radius:14px; font-size:18px; display:none; z-index:9; }
+  .toast.show { display:block; }
+  .toast.ok { background:#123a2a; border:1px solid #1f6f52; color:#b9ffdc; }
+  .toast.bad { background:#3a1b1b; border:1px solid #7a2b2b; color:#ffd0d0; }
+  .emergency { background:#3a1b1b; border:1px solid #7a2b2b; border-radius:14px; padding:14px; margin-top:12px; display:none; }
+  .emergency.show { display:block; }
+  .emergency a { color:#fff; font-size:22px; font-weight:800; }
+  .link { color:var(--blue); text-decoration:none; }
+  input[type=text], textarea { width:100%; font:inherit; font-size:18px; background:#0f1730; color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .consent { display:flex; gap:10px; font-size:16px; color:var(--dim); margin:14px 0; }
+  .consent input { width:24px; height:24px; margin-top:2px; }
+  html[dir=rtl] .task { flex-direction:row-reverse; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1 id="tTitle">丙大山陪护</h1>
+  <div class="lang" id="langBox">
+    <button data-lang="zh" class="on">中文</button>
+    <button data-lang="en">EN</button>
+    <button data-lang="ar">عربي</button>
+  </div>
+</div>
+
+<div id="app"><div class="card"><div class="empty">…</div></div></div>
+<div id="toast" class="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var D = {
+    zh: {
+      title: '丙大山陪护', setupTitle: '第一次使用', setupNote: '请填写称呼，并勾选同意书。建档后把邀请码给子女，他们加入后就能收到你的求助。',
+      name: '怎么称呼您（如：张阿姨）', consent: '我同意记录我的基本信息、健康资料与设备状态，并可随时要求删除。', create: '建档',
+      needName: '请填写称呼', needConsent: '请先勾选同意书',
+      family: '家人', tasks: '今天要做的事', docs: '我的资料', help: '需要帮助',
+      sos: '求 助', sosNote: '不舒服、摔倒、找不到人时，按一下', sent: '已通知家人，请等电话',
+      emergency: '如果没人接电话，或情况紧急，请直接拨打 120', call: '拨打 120',
+      noTasks: '今天没有安排。', done: '完成', doneOk: '已记录完成',
+      noDocs: '还没有资料。', addDoc: '拍病历/处方', docOk: '资料已保存', docFail: '上传失败：',
+      guardians: '家人', online: '设备在线', offline: '设备离线', profile: '档案',
+      complete: '已完整', incomplete: '待补充', invite: '邀请码', assist: '申请人工协助',
+      notBound: '还没有家人加入，请把邀请码发给他们', sosFail: '求助发送失败：',
+      share: '把邀请码发给子女：', refresh: '刷新'
+    },
+    en: {
+      title: 'BingDaShan Care', setupTitle: 'First time here', setupNote: 'Enter how we should address you and tick the consent box. After that, give the invite code to your children so they receive your alerts.',
+      name: 'How should we address you?', consent: 'I agree to record my basic information, health records and device status, and I may ask for deletion at any time.', create: 'Create profile',
+      needName: 'Please enter a name', needConsent: 'Please tick the consent box',
+      family: 'Family', tasks: 'Today', docs: 'My records', help: 'Need help',
+      sos: 'SOS', sosNote: 'Press if you feel unwell, fall, or cannot reach anyone', sent: 'Family notified. Please wait for their call.',
+      emergency: 'If no one answers, or it is urgent, call 120 now', call: 'Call 120',
+      noTasks: 'Nothing scheduled today.', done: 'Done', doneOk: 'Marked as done',
+      noDocs: 'No records yet.', addDoc: 'Photograph a report', docOk: 'Record saved', docFail: 'Upload failed: ',
+      guardians: 'Family', online: 'Devices online', offline: 'Devices offline', profile: 'Profile',
+      complete: 'Complete', incomplete: 'Incomplete', invite: 'Invite code', assist: 'Request human help',
+      notBound: 'No family member has joined yet. Send them the invite code.', sosFail: 'Failed to send: ',
+      share: 'Send this code to your children: ', refresh: 'Refresh'
+    },
+    ar: {
+      title: 'رعاية بينغ دà شان', setupTitle: 'أول مرة', setupNote: 'اكتب كيف نناديك وحدّد مربع الموافقة. بعد ذلك أرسل رمز الدعوة إلى أبنائك ليستقبلوا تنبيهاتك.',
+      name: 'كيف نناديك؟', consent: 'أوافق على تسجيل معلوماتي الأساسية وسجلاتي الصحية وحالة الأجهزة، ولي الحق في طلب الحذف في أي وقت.', create: 'إنشاء ملف',
+      needName: 'يرجى إدخال الاسم', needConsent: 'يرجى تحديد مربع الموافقة',
+      family: 'العائلة', tasks: 'مهام اليوم', docs: 'سجلاتي', help: 'أحتاج مساعدة',
+      sos: 'طلب مساعدة', sosNote: 'اضغط إذا شعرت بتوعك أو سقطت أو لم تجد أحدًا', sent: 'تم إبلاغ العائلة، يرجى انتظار الاتصال.',
+      emergency: 'إذا لم يرد أحد أو كانت الحالة طارئة، اتصل بـ 120 فورًا', call: 'اتصل بـ 120',
+      noTasks: 'لا توجد مهام اليوم.', done: 'تم', doneOk: 'تم التسجيل',
+      noDocs: 'لا توجد سجلات بعد.', addDoc: 'صوّر تقريرًا', docOk: 'تم حفظ السجل', docFail: 'فشل الرفع: ',
+      guardians: 'أفراد العائلة', online: 'أجهزة متصلة', offline: 'أجهزة غير متصلة', profile: 'الملف',
+      complete: 'مكتمل', incomplete: 'غير مكتمل', invite: 'رمز الدعوة', assist: 'طلب مساعدة بشرية',
+      notBound: 'لم ينضم أحد بعد. أرسل رمز الدعوة إليهم.', sosFail: 'فشل الإرسال: ',
+      share: 'أرسل هذا الرمز إلى أبنائك: ', refresh: 'تحديث'
+    }
+  };
+  var lang = 'zh';
+  try {
+    var saved = localStorage.getItem('bd_lang');
+    if (saved && D[saved]) lang = saved;
+    else if ((navigator.language || '').indexOf('ar') === 0) lang = 'ar';
+    else if ((navigator.language || '').indexOf('zh') !== 0) lang = 'en';
+  } catch (e) {}
+  var T = function () { return D[lang] || D.zh; };
+  var $ = function (s) { return document.querySelector(s); };
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function toast(msg, cls) {
+    var el = $('#toast'); el.textContent = msg; el.className = 'toast show ' + (cls || 'ok');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { el.className = 'toast'; }, 4200);
+  }
+  function api(path, opt) {
+    var o = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opt || {});
+    return fetch(path, o).then(function (r) { return r.json(); });
+  }
+  function fmt(ts) { try { return new Date(Number(ts)).toLocaleString(); } catch (e) { return ''; } }
+
+  function render(fam) {
+    var t = T();
+    if (!fam || !fam.families || !fam.families.length) {
+      $('#app').innerHTML = '<div class="card"><h2>' + esc(t.setupTitle) + '</h2><p class="empty">' + esc(t.setupNote) + '</p>'
+        + '<input id="elderName" type="text" placeholder="' + esc(t.name) + '" maxlength="40">'
+        + '<label class="consent"><input id="consent" type="checkbox"><span>' + esc(t.consent) + '</span></label>'
+        + '<button class="btn primary" id="create" style="width:100%;min-height:56px">' + esc(t.create) + '</button></div>';
+      $('#create').onclick = function () {
+        var name = ($('#elderName').value || '').trim();
+        if (!name) return toast(t.needName, 'bad');
+        if (!$('#consent').checked) return toast(t.needConsent, 'bad');
+        this.disabled = true;
+        var b = this;
+        api('/v1/care/family/create', { method: 'POST', body: JSON.stringify({ elderName: name, consent: true }) })
+          .then(function (r) { b.disabled = false; if (!r.ok) return toast(r.error || 'error', 'bad'); load(); })
+          .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+      };
+      return;
+    }
+    var f = fam.families[0];
+    var p = f.profile || {};
+    var tasks = f.tasks || [];
+    var docs = f.docs || [];
+    var gs = f.members.filter(function (m) { return m.role === 'guardian'; });
+    var online = f.devices.filter(function (d) { return d.status === 'online'; }).length;
+    var off = f.devices.length - online;
+    var taskHtml = tasks.length ? '<div class="list">' + tasks.map(function (x) {
+      return '<div class="task"><div class="t">' + esc(x.title) + '<div class="due">' + esc(fmt(x.dueAt)) + '</div></div>'
+        + '<button class="btn green" data-done="' + esc(x.id) + '">' + esc(t.done) + '</button></div>';
+    }).join('') + '</div>' : '<div class="empty">' + esc(t.noTasks) + '</div>';
+    var docHtml = docs.length ? '<div class="list">' + docs.map(function (d) {
+      return '<a class="item" style="color:inherit;text-decoration:none" href="/v1/care/doc/file?id=' + encodeURIComponent(d.id) + '" target="_blank">'
+        + esc(d.title) + '<div class="meta">' + esc(fmt(d.at)) + (d.hasFile ? '' : ' · 无附件') + '</div></a>';
+    }).join('') + '</div>' : '<div class="empty">' + esc(t.noDocs) + '</div>';
+    var chips = '<span class="chip ' + (gs.length ? 'ok' : 'bad') + '">' + esc(t.guardians) + ' ' + gs.length + '</span>'
+      + '<span class="chip ' + (online ? 'ok' : 'bad') + '">' + esc(t.online) + ' ' + online + '</span>'
+      + (off ? '<span class="chip bad">' + esc(t.offline) + ' ' + off + '</span>' : '')
+      + '<span class="chip ' + (p.complete ? 'ok' : '') + '">' + esc(t.profile) + ' ' + esc(p.complete ? t.complete : t.incomplete) + '</span>';
+
+    $('#app').innerHTML =
+      '<div class="card"><h2>' + esc(f.family.elderName) + '</h2><div class="chips">' + chips + '</div>'
+      + (gs.length ? '' : '<div class="empty" style="margin-top:6px">' + esc(t.notBound) + '</div>'
+        + '<div class="item" style="margin-top:8px">' + esc(t.share) + '<b>' + esc(f.family.inviteCode) + '</b></div>') + '</div>'
+      + '<div class="card"><button class="sos" id="sos">' + esc(t.sos) + '</button>'
+      + '<div class="sosNote">' + esc(t.sosNote) + '</div>'
+      + '<div class="emergency" id="emg"><div>' + esc(t.emergency) + '</div><a href="tel:120">' + esc(t.call) + '</a></div></div>'
+      + '<div class="card"><h2>' + esc(t.tasks) + '</h2>' + taskHtml + '</div>'
+      + '<div class="card"><h2>' + esc(t.docs) + '</h2>' + docHtml
+      + '<div style="margin-top:12px"><label class="btn primary" style="display:inline-block">' + esc(t.addDoc)
+      + '<input id="docFile" type="file" accept="image/*" capture="environment" style="display:none"></label></div></div>'
+      + '<div class="card"><h2>' + esc(t.help) + '</h2><a class="link" href="/assist.html">' + esc(t.assist) + '</a></div>';
+
+    $('#sos').onclick = function () {
+      var b = this;
+      if (!confirm(t.sos + '?')) return;
+      b.disabled = true;
+      api('/v1/care/alert', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, kind: 'sos' }) })
+        .then(function (r) {
+          b.disabled = false;
+          if (!r.ok) return toast(t.sosFail + (r.error || ''), 'bad');
+          var g = (r.guardians || []).map(function (x) { return x.name + ' ' + x.phone; }).join(' / ');
+          toast(t.sent + (g ? ' · ' + g : ''), 'ok');
+          $('#emg').className = 'emergency show';
+        })
+        .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-done]'), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        api('/v1/care/task/done', { method: 'POST', body: JSON.stringify({ id: b.getAttribute('data-done') }) })
+          .then(function (r) { if (!r.ok) { b.disabled = false; return toast(r.error || 'error', 'bad'); } toast(t.doneOk, 'ok'); load(); })
+          .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+      };
+    });
+    $('#docFile').onchange = function () {
+      var file = this.files && this.files[0];
+      if (!file) return;
+      if (file.size > 1000 * 1000) return toast('>1MB', 'bad');
+      var fr = new FileReader();
+      fr.onload = function () {
+        var title = prompt(t.addDoc, file.name) || file.name;
+        api('/v1/care/doc', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, title: title, kind: 'report', dataUrl: fr.result }) })
+          .then(function (r) { if (!r.ok) return toast(t.docFail + (r.error || ''), 'bad'); toast(t.docOk, 'ok'); load(); })
+          .catch(function (e) { toast(String(e), 'bad'); });
+      };
+      fr.readAsDataURL(file);
+    };
+  }
+
+  function load() {
+    api('/v1/care/family').then(render).catch(function (e) {
+      $('#app').innerHTML = '<div class="card"><div class="empty">' + esc(String(e)) + '</div></div>';
+    });
+  }
+
+  function apply() {
+    document.documentElement.lang = lang === 'ar' ? 'ar' : (lang === 'en' ? 'en' : 'zh-CN');
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    $('#tTitle').textContent = T().title;
+    Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+      b.className = b.getAttribute('data-lang') === lang ? 'on' : '';
+    });
+    load();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+    b.onclick = function () {
+      var l = b.getAttribute('data-lang');
+      if (!D[l]) return;
+      lang = l;
+      try { localStorage.setItem('bd_lang', l); } catch (e) {}
+      apply();
+    };
+  });
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/care/sw.js').catch(function () {});
+  }
+  apply();
+})();
+</script>
+</body>
+</html>

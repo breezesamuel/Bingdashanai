@@ -1,0 +1,1961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>丙大山AI · Agent 驾驶舱</title>
+<link rel="stylesheet" href="app.css">
+<!-- PWA：让 iOS / Android / 鸿蒙 / 桌面浏览器都"可安装"为独立应用（免上架、同一套资产） -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#107a5a">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/icons/favicon-64.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="丙大山AI">
+</head>
+<body data-theme="emerald">
+<!-- 顶部状态条 -->
+<header class="superbar">
+  <button class="sb-burger" id="navBurger" title="展开/收起导航" aria-label="展开或收起左侧导航">☰</button>
+  <div class="brand" id="brandBtn">
+    <span class="brand-mark">丙</span>
+    <div class="brand-txt">
+      <b>丙大山AI</b>
+      <span>Agent 驾驶舱 · v<span id="verBox">–</span></span>
+    </div>
+  </div>
+  <div class="sb-stats" id="sbStats"></div>
+  <div id="themeDots" class="theme-dots sb-item"></div>
+  <!-- 顶栏常驻语言切换器：让「当前语言」一眼可见，不用进设置页找 -->
+  <div class="sb-lang" style="display:flex;align-items:center;gap:6px">
+    <span aria-hidden="true" style="opacity:.75">🌐</span>
+    <select class="ipt" data-lang-select title="界面语言 / Language / اللغة"
+            aria-label="界面语言 / Language" style="max-width:130px;padding:2px 6px"></select>
+  </div>
+  <div class="sb-conn"><span id="connDot" class="dot"></span><span id="connTxt">引擎探测中…</span></div>
+</header>
+
+<div class="app">
+  <!-- 左栏光标靠近显现 -->
+  <div id="navPeek" title="导航"></div>
+  <!-- 侧边导航 -->
+  <aside class="nav" id="nav">
+    <div class="nav-group">
+      <a class="nav-item active" data-tab="chat"><span class="n-ico">💬</span><span data-i18n="nav.chat">智能对话</span></a>
+      <a class="nav-item" data-tab="decision"><span class="n-ico">🧭</span><span data-i18n="nav.decision">决策中心</span></a>
+      <a class="nav-item" data-tab="org"><span class="n-ico">🧠</span><span data-i18n="nav.org">组织大脑</span></a>
+      <a class="nav-item" data-tab="project"><span class="n-ico">🛤️</span><span data-i18n="nav.project">项目管理</span></a>
+      <a class="nav-item" data-tab="tasks"><span class="n-ico">✅</span><span data-i18n="nav.tasks">任务台</span></a>
+      <a class="nav-item" data-tab="audit"><span class="n-ico">📜</span><span data-i18n="nav.audit">审计日志</span></a>
+      <a class="nav-item" data-tab="setting"><span class="n-ico">⚙️</span><span data-i18n="nav.setting">系统设置</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-caption" role="button" tabindex="0" aria-expanded="true"><span>大脑实验室</span><span class="cap-arrow">▼</span></div>
+      <a class="nav-item" data-tab="studiohub"><span class="n-ico">🎬</span><span data-i18n="nav.studiohub">创作工坊</span></a>
+      <a class="nav-item" data-tab="brain"><span class="n-ico">🧬</span><span data-i18n="nav.brain">记忆 · 学习 · 进化</span></a>
+      <a class="nav-item" data-tab="skills"><span class="n-ico">🛠️</span><span data-i18n="nav.skills">技能军械库</span></a>
+      <a class="nav-item" data-tab="agents"><span class="n-ico">🎛️</span><span data-i18n="nav.agents">Agent 管理中心</span></a>
+      <a class="nav-item" data-tab="auto"><span class="n-ico">🤖</span><span data-i18n="nav.auto">24h 自主运营</span></a>
+      <a class="nav-item" data-tab="cmd"><span class="n-ico">🎖️</span><span data-i18n="nav.cmd">作战指挥塔</span></a>
+      <a class="nav-item" data-tab="guard"><span class="n-ico">🕯️</span><span data-i18n="nav.guard">同在守护</span></a>
+      <a class="nav-item" data-tab="warroom"><span class="n-ico">🗺️</span><span data-i18n="nav.warroom">战情室</span></a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-caption" role="button" tabindex="0" aria-expanded="true"><span>商业中枢</span><span class="cap-arrow">▼</span></div>
+      <a class="nav-item" data-tab="cashier"><span class="n-ico">💰</span><span data-i18n="nav.cashier">收银台</span></a>
+      <a class="nav-item" data-tab="gtm"><span class="n-ico">🎯</span><span data-i18n="nav.gtm">获客市场</span></a>
+      <a class="nav-item" data-tab="partner"><span class="n-ico">🤝</span><span data-i18n="nav.partner">合伙人分销</span></a>
+      <a class="nav-item" data-tab="outreach"><span class="n-ico">📤</span><span data-i18n="nav.outreach">外发触达</span></a>
+      <a class="nav-item" data-tab="convert"><span class="n-ico">🔄</span><span data-i18n="nav.convert">线索转化</span></a>
+      <a class="nav-item" data-tab="commercial-loop"><span class="n-ico">🔄</span><span data-i18n="nav.commercial-loop">商业闭环</span></a>
+      <a class="nav-item" data-tab="subs"><span class="n-ico">💳</span><span data-i18n="nav.subs">订阅 · 收费墙</span></a>
+      <a class="nav-item" data-tab="rank"><span class="n-ico">🏆</span><span data-i18n="nav.rank">排行榜</span></a>
+      <a class="nav-item" data-tab="watch"><span class="n-ico">🛰️</span><span data-i18n="nav.watch">24h 监控告警</span></a>
+      <a class="nav-item" data-tab="kpi"><span class="n-ico">🎯</span><span data-i18n="nav.kpi">目标任务</span></a>
+      <a class="nav-item" data-tab="funnel"><span class="n-ico">📊</span><span data-i18n="nav.funnel">漏斗看板</span></a>
+      <a class="nav-item" data-tab="capmap"><span class="n-ico">🧭</span><span data-i18n="nav.capmap">能力全景</span></a>
+      <a class="nav-item" data-tab="compliance"><span class="n-ico">🛡️</span><span data-i18n="nav.compliance">合规中心</span></a>
+      <a class="nav-item" data-tab="validator"><span class="n-ico">🏗️</span><span data-i18n="nav.validator">创业验证所</span></a>
+    </div>
+    <div class="nav-foot">
+      <div class="mini-card">
+        <div class="mini-title">自适应通道</div>
+        <div class="mini-val" id="recProvider">–</div>
+        <div class="mini-sub">成功率最优 + 延时最优</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+
+    <!-- ===== 智能对话 ===== -->
+    <section class="tab-pane" id="tab-chat">
+      <div class="pane-head">
+        <div class="pane-title">智能对话 <span class="tag" id="engineTag">brain-command</span></div>
+        <div class="toolbar" id="chatToolbar">
+          <label><span data-i18n="chat.model">模型</span> <select id="providerSel"></select></label>
+          <label><span data-i18n="chat.output">输出</span>
+            <select id="modeSel"><option value="text" data-i18n="chat.text">文本</option><option value="voice" data-i18n="chat.voice">语音朗读</option></select>
+          </label>
+          <label class="check-inline"><input type="checkbox" id="depthChk"><span data-i18n="chat.deep">深度思考</span></label>
+          <button class="btn ghost" id="exportChatBtn" data-i18n-title="chat.export" title="导出会话 TXT">⬇ 导出</button>
+          <button class="btn ghost" id="micBtn" data-i18n-title="chat.mic" title="语音输入">🎤</button>
+          <button class="btn ghost" id="camBtn" data-i18n-title="chat.cam" title="打开摄像头">📷</button>
+          <button class="btn ghost danger" id="clearBtn" data-i18n-title="chat.clear" title="清空会话">🧹</button>
+          <span class="lang-hint" id="langHint"></span>
+        </div>
+      </div>
+      <div class="chat-stage">
+        <!-- 动画 AI 陪伴角色：纯 CSS 表情/聆听/思考/说话 -->
+        <div class="buddy" id="buddy" data-state="idle">
+          <div class="buddy-head">
+            <div class="buddy-blob">
+              <div class="buddy-ear l"></div><div class="buddy-ear r"></div>
+              <div class="buddy-antenna"><i></i></div>
+              <div class="buddy-eye l"></div><div class="buddy-eye r"></div>
+              <div class="buddy-mouth"></div>
+              <div class="buddy-cheek l"></div><div class="buddy-cheek r"></div>
+            </div>
+          </div>
+          <div class="buddy-note" id="buddyNote">我是丙大山，随时待命 👋</div>
+          <div class="buddy-chips" id="buddyChips"></div>
+        </div>
+        <div class="chat-list" id="chatList"></div>
+        <div class="cam-wrap" id="camWrap" hidden>
+          <video id="camVideo" autoplay muted playsinline></video>
+          <span class="cam-close" id="camClose">✕</span>
+        </div>
+        <div class="composer">
+          <div class="dropzone" id="dropzone">
+            <div class="dz-pills" id="dzPills"></div>
+            <textarea id="chatInput" rows="2" placeholder="输入你的问题… （/ 开头进入命令，如 /help · /remember 内容）"></textarea>
+            <div class="composer-right">
+              <span class="dz-hint" id="dzHint">拖入 PDF / Word / TXT / PPT / JPG / PNG</span>
+              <button class="btn primary" id="sendBtn">发送 ⇧</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 决策中心 ===== -->
+<section class="tab-pane" id="tab-decision" hidden>
+      <div class="pane-head">
+        <div class="pane-title">决策中心 <span class="tag blue">50+ 决策方法</span></div>
+        <button class="btn ghost" onclick="exportCsv('decisions')">导出 CSV</button>
+      </div>
+      <!-- 第 3 条：选定决策方向 → 立刻展开成指向性任务目标，并牵引对话 -->
+      <div class="panel" id="dfocusPanel">
+        <div class="panel-title">🎯 当前决策焦点（选定方向后自动派发指向性任务，智能对话会朝这个方向回答）</div>
+        <div id="dfocusBody"><div class="text-muted" style="padding:6px 0">加载中…</div></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+          <select id="dfDomain" class="ipt" style="max-width:150px"></select>
+          <input id="dfTopic" class="ipt" style="flex:1;min-width:180px" placeholder="这次要做的决策是什么？（例：季度线索转化）">
+          <button class="btn primary" id="dfSetBtn">设为焦点并派发任务</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">决策框架库 <span class="sub" id="fwCount"></span></div>
+        <div class="fw-apply">
+          <select id="fwCat" title="按领域筛选框架"></select>
+          <select id="fwSel"></select>
+          <input id="fwTopic" placeholder="要决策的主题，如：明年是否进入东南亚市场…">
+          <button class="btn primary" id="fwGo">应用框架</button>
+        </div>
+        <div class="fw-suggest" id="fwSuggest" hidden>选一个框架，这里会给出可直接套用的提问清单。</div>
+        <div class="fw-result" id="fwResult" hidden>应用后，这里会显示该框架的分析结果。</div>
+        <div class="row" style="gap:8px;margin-top:10px" id="fwProjectBtnWrap" hidden>
+          <button class="btn primary" id="fwProjectBtn">🚀 一键立项：把决策结论变成项目（里程碑=决策问题，任务=指向性任务，自动派工）</button>
+          <span class="sub" id="fwProjectHint"></span>
+        </div>
+        <div class="fw-grid" id="fwGrid"></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-v" id="decTotal">0</div><div class="stat-l">决策总数</div></div>
+        <div class="stat"><div class="stat-v" id="decToday">0</div><div class="stat-l">今日新增</div></div>
+        <div class="stat"><div class="stat-v" id="decAuto">ON</div><div class="stat-l">视觉感知</div></div>
+      </div>
+      <div class="panel"><div class="panel-title">近 7 日决策趋势</div><div class="dec-trend" id="decTrend"></div></div>
+      <div class="board auto-scroll" id="decBoard"></div>
+      <form class="inline-form" id="decForm">
+        <input id="decQ" placeholder="登记一项决策问题…" required>
+        <input id="decA" placeholder="决策结论（可留空，将直接入流）">
+        <button class="btn primary" type="submit">登记决策</button>
+      </form>
+    </section>
+
+    <!-- ===== 组织大脑 ===== -->
+    <section class="tab-pane" id="tab-org" hidden>
+      <div class="pane-head">
+        <div class="pane-title">组织大脑 <span class="tag blue">自动下滑</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" id="evolveSkillBtn">⚡ 员工技能进化</button>
+          <button class="btn ghost" id="bulkBtn">🧑‍💼 批量 AI 员工</button>
+          <button class="btn ghost" id="oneBtn">🚀 一人公司</button>
+          <button class="btn ghost" onclick="refreshOrg()">刷新心跳</button>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-v" id="orgHead">0</div><div class="stat-l">在编员工</div></div>
+        <div class="stat"><div class="stat-v" id="orgActive">0</div><div class="stat-l">在岗</div></div>
+        <div class="stat"><div class="stat-v" id="orgProj">0</div><div class="stat-l">在跑项目</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">员工编成 <span class="sub">点选卡片切换 在岗/离线</span></div>
+        <div class="staff-grid auto-scroll" id="staffGrid"></div>
+      </div>
+      <form class="inline-form" id="staffForm">
+        <input id="staffName" placeholder="新员工姓名…" required>
+        <input id="staffRole" placeholder="角色（如：算法工程师）">
+        <input id="staffSkill" placeholder="技能组（逗号分隔，如：Python,React）">
+        <button class="btn primary" type="submit">+ 自建员工</button>
+      </form>
+      <div class="panel">
+        <div class="panel-title">人才配置 · 你来自选 <span class="sub">AI 建议仅供参考，数量完全由你定</span></div>
+        <div class="tc-ctrl row" style="gap:10px;margin-bottom:8px">
+          <label class="check-inline"><input type="checkbox" id="tcName"> 写实姓名（不写用行业·岗位命名）</label>
+          <span style="flex:1"></span>
+          <button class="btn ghost" id="tcSuggestBtn">✨ 获取 AI 建议配置</button>
+        </div>
+        <div class="tc-tools row" style="gap:8px;margin-bottom:8px">
+          <select id="tcIndustry" style="min-width:170px"><option value="all">全部行业</option></select>
+          <input type="number" id="tcCount" min="0" max="20" value="1" style="width:64px" title="每个岗位人数">
+          <button class="btn ghost" id="tcAddRow">＋ 加入配置</button>
+          <span class="sub">（每人 ≤ 20）</span>
+        </div>
+        <div class="tc-config" id="tcConfig">批量生成前，先在这里配置规则。</div>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button class="btn primary" id="tcImportBtn">✅ 按我的配置导入</button>
+        </div>
+        <div class="sub" id="tcNote">流程：点「获取 AI 建议配置」得到默认方案 → 修改行业/岗位/数量到你满意 → 一键导入成真实员工。</div>
+      </div>
+    </section>
+
+    <!-- ===== 项目管理 ===== -->
+    <section class="tab-pane" id="tab-project" hidden>
+      <div class="pane-head">
+        <div class="pane-title">项目管理 <span class="tag blue">自动下滑 · 多项目并行</span></div>
+      </div>
+      <div class="row" id="projSummary" style="gap:6px;margin:8px 0;flex-wrap:wrap"></div>
+      <div class="proj-grid auto-scroll" id="projGrid"></div>
+      <form class="inline-form" id="projForm">
+        <input id="projName" placeholder="新项目名称…" required>
+        <input id="projDesc" placeholder="一句话目标">
+        <select id="projStatus"><option value="running">进行中</option><option value="paused">暂停</option><option value="done">已完成</option></select>
+        <button class="btn primary" type="submit">+ 启动项目</button>
+      </form>
+    </section>
+
+    <!-- ===== 任务台 ===== -->
+    <section class="tab-pane" id="tab-tasks" hidden>
+      <div class="pane-head">
+        <div class="pane-title">任务台 <span class="tag blue">自动下滑 · 决策/项目可一键转任务</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" onclick="claimAllPending()">认领未分配任务</button>
+          <button class="btn ghost" onclick="refreshTasks()">刷新</button>
+        </div>
+      </div>
+      <div class="stat-row" id="taskStats"></div>
+      <div class="src-summary" id="taskBySource"></div>
+      <div class="task-list auto-scroll" id="taskList"></div>
+      <form class="inline-form" id="taskForm">
+        <input id="taskTitle" placeholder="要做什么…" required>
+        <input id="taskDue" placeholder="截止（如：周四 18:00）">
+        <button class="btn primary" type="submit">+ 新建任务</button>
+      </form>
+    </section>
+
+    <!-- ===== 项目卡片区（多项目并行，自动下滑）===== -->
+
+    <!-- ===== 审计日志 ===== -->
+    <section class="tab-pane" id="tab-audit" hidden>
+      <div class="pane-head">
+        <div class="pane-title">审计日志 <span class="tag blue">自动下滑</span></div>
+        <div class="toolbar">
+          <input id="auditQ" placeholder="搜索 动作/明细…" style="width:200px">
+          <select id="auditFilter">
+            <option value="">全部动作</option>
+          </select>
+          <button class="btn ghost" onclick="exportCsv('audit')">导出 CSV</button>
+        </div>
+      </div>
+      <div class="audit-box auto-scroll">
+        <table class="table">
+          <thead><tr><th>时间</th><th>动作</th><th>明细</th></tr></thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 系统设置 ===== -->
+    <section class="tab-pane" id="tab-setting" hidden>
+      <div class="pane-head"><div class="pane-title" data-i18n="set.title">系统设置</div></div>
+      <div class="set-grid">
+        <!-- 第 1 条：语言设置必须在这里，且切换后整个系统立即跟随 -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.language">界面语言</div>
+          <label class="row" style="gap:10px;align-items:center">
+            <select id="langSel" class="ipt" style="max-width:180px"></select>
+            <span class="sub" id="langNote"></span>
+          </label>
+          <div class="text-muted" data-i18n="set.languageDesc">选择后整个系统立即切换，所有页面、按钮、提示同步生效，不会出现语言混杂。</div>
+        </div>
+        <div class="card">
+          <div class="card-t" data-i18n="set.theme">主题配色</div>
+          <div class="theme-grid" id="themeGrid"></div>
+          <div class="text-muted" data-i18n="set.themeDesc">全局配色即时切换，并自动写入大脑记忆。</div>
+        </div>
+        <!-- 第 7 条：各种警告音，而不只是"一个开关" -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.sound">警告音</div>
+          <label class="switch-row"><span data-i18n="set.soundOn">启用警告音</span><input type="checkbox" id="soundOn" checked><span class="sw"></span></label>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+            <select id="soundKind" class="ipt" style="max-width:150px"></select>
+            <select id="soundTone" class="ipt" style="max-width:130px"></select>
+            <button class="btn ghost" id="testSoundBtn" data-i18n="set.soundTest">🔔 试听</button>
+            <span class="sub" id="soundNote"></span>
+          </div>
+          <div class="text-muted" data-i18n="set.soundDesc">不同事件使用不同提示音，避免所有提醒都一个样。</div>
+        </div>
+        <!-- 第 16 条：目标任务 = 所有功能模块程序的最核心指导目标，可添加多条 -->
+        <div class="card">
+          <div class="card-t" data-i18n="set.goal">目标任务</div>
+          <div class="text-muted" data-i18n="set.goalDesc">所有功能模块程序的最核心指导目标，可添加多条。</div>
+          <div id="goalList" class="goal-list"></div>
+          <!-- 追赶节奏：目标不落到"今天该做多少"就只是墙上的一句话 -->
+          <div id="goalPace" class="goal-pace"></div>
+          <!-- 【为什么原来这行不叫"添加窗口"】需求原文要的是"指导目标的添加窗口实现多样化"，
+               但原来只有标题 + 目标值两个框，period 写死 P6M、单位写死 CNY——
+               于是加三条目标全是"半年 / 元钱"，多样化根本做不到。现在把单位与
+               周期显式交给用户选，营收/客户数/周期数/交付天数才是不同的目标类型。 -->
+          <div class="row" style="gap:8px;margin-top:8px">
+            <input id="goalInp" class="ipt" style="flex:1;min-width:140px" data-i18n-ph="goal.ph" placeholder="例：半年营收 1000 万">
+            <input id="goalAmtInp" class="ipt" style="max-width:110px" placeholder="目标值">
+            <select id="goalUnitSel" class="ipt" style="max-width:104px" title="单位">
+              <option value="CNY">元</option>
+              <option value="万元">万元</option>
+              <option value="家">家（客户数）</option>
+              <option value="单">单</option>
+              <option value="天">天（周期/交付）</option>
+              <option value="人">人</option>
+              <option value="%">%</option>
+              <option value="篇">篇</option>
+            </select>
+            <select id="goalPeriodSel" class="ipt" style="max-width:104px" title="周期">
+              <option value="P1M">1 个月</option>
+              <option value="P3M">3 个月</option>
+              <option value="P6M" selected>6 个月</option>
+              <option value="P1Y">1 年</option>
+            </select>
+            <button class="btn primary" id="goalAddBtn" data-i18n="set.goalAdd">添加目标</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-t" data-i18n="set.update">自我更新</div>
+          <div class="row">
+            <span class="upd-ver"><span data-i18n="set.ver">当前版本</span> v<span id="updVer">–</span></span>
+            <button class="btn ghost" id="updBtn" data-i18n="set.updateCheck">检查更新</button>
+          </div>
+          <div class="sub" id="updNote" data-i18n="set.updateDesc">本地构建。检查最新版本并评估升级路径。</div>
+        </div>
+<div class="card" style="grid-column: span 2;">
+          <div class="card-t"><span data-i18n="set.keys">8 家模型通道 · 密钥管理</span> <button class="btn ghost small" id="keysBtn" data-i18n="set.keysSave">💾 保存密钥</button></div>
+          <table class="table" id="provTable">
+            <thead><tr><th data-i18n="common.name">服务商</th><th data-i18n="set.keys">密钥</th><th>默认模型</th><th data-i18n="common.status">状态</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <textarea class="keys-area" id="keysArea" placeholder="KEY=VALUE 每行一条，例：&#10;DEEPSEEK_API_KEY=sk-xxxxxxxx&#10;MOONSHOT_API_KEY=sk-yyyyyyyy"></textarea>
+          <div class="sub" id="keysNote">支持 AGNES / ZHIPU / DEEPSEEK / SILICONFLOW / VOLCENGINE / MINIMAX / MOONSHOT / NVIDIA。打包版写入用户级密钥文件，无需改源码；已配置通道自动点亮。</div>
+        </div>
+
+        <!-- ===== 官方免费额度通道（合规「免费 token」：聚合官方免费 tier + 健康/配额感知轮换）=====
+             为什么这不是"白嫖 GitHub 上的免费 Key"：那些多为盗用/滥用 Key，随时吊销且泄露数据。
+             这里是各厂商**官方免费 tier** 的聚合，配自己的 Key、官方授权、失败如实上报。 -->
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-t">
+            <span>官方免费额度通道 · 自动轮换</span>
+            <button class="btn ghost small" id="freeTierRefreshBtn">🔄 在线发现模型</button>
+          </div>
+          <div class="text-muted">聚合各厂商<b>官方免费 tier</b>，按健康与配额自动轮换：一个用完或挂掉，自动切下一个。配任一处的免费 Key 即可启用；全部失败会如实上报，绝不伪造成功。</div>
+          <div class="sub" id="freeTierGrant" style="margin:6px 0"></div>
+          <table class="table" id="freeTierTable">
+            <thead><tr><th>通道</th><th>免费额度</th><th>模型</th><th>健康</th><th>状态</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="sub" id="freeTierNote"></div>
+        </div>
+
+        <!-- ===== 第 7 条：设置中枢（由 core/settings-registry.js 驱动）=====
+             为什么这一块是「注册表驱动」而不是手写卡片：
+             实测全系统 getSetting() 读了 18 个键，原设置页只能配 4 个 ——
+             告警收件邮箱、收款账号、平台费率、监控间隔、并发槽位全部只能改库文件。
+             那里加一行声明，UI 自动出现，不存在"忘了加"的情况。
+             覆盖率接口 GET /v1/settings/coverage 会把"被读取却无法配置"的键报出来。 -->
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-t">
+            <span data-i18n="set.hub">系统设置中枢</span>
+            <span class="sub" id="setHubCoverage"></span>
+          </div>
+          <div id="setHealth" class="set-health"></div>
+          <div id="setGroups" class="set-groups"></div>
+          <div class="row" style="gap:8px;margin-top:10px">
+            <button class="btn primary" id="setSaveBtn" data-i18n="set.saveAll">保存全部设置</button>
+            <button class="btn ghost" id="setReloadBtn" data-i18n="common.refresh">刷新</button>
+            <label class="switch-row" style="margin:0"><span data-i18n="set.showAdv">显示高级项</span><input type="checkbox" id="setAdv"><span class="sw"></span></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 大脑实验室 ===== -->
+    <!-- 第 14 条：音视频 / 游戏 / 音乐三个制作模块的统一入口。
+     注意：gamestudio 后端早就存在但前端**没有任何入口**，是孤儿模块；
+     音乐模块本次新增；影视沿用 studio 能力。三者放一起，构成"创作工坊"。 -->
+<section class="tab-pane" id="tab-studiohub" hidden>
+      <div class="pane-head">
+        <div class="pane-title">🎬 创作工坊<span class="tag violet">音视频 · 游戏 · 音乐</span></div>
+        <div class="toolbar">
+          <button class="btn ghost" id="hubRefresh">🔄 刷新能力</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">🎵 音乐制作（20+ 制作要素 · 纯本地 DSP · 零网络依赖）</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <label class="row" style="gap:5px;align-items:center">BPM <input id="musBpm" class="ipt" type="number" value="96" min="60" max="180" style="width:74px"></label>
+          <label class="row" style="gap:5px;align-items:center">小节 <input id="musBars" class="ipt" type="number" value="8" min="4" max="32" style="width:74px"></label>
+          <select id="musScale" class="ipt"></select>
+          <select id="musProg" class="ipt"></select>
+          <select id="musVoice" class="ipt"></select>
+          <button class="btn primary" id="musGo">🎼 生成</button>
+        </div>
+        <div class="sub" id="musNote" style="margin:8px 0"></div>
+        <div id="musPlayer"></div>
+        <div id="musElements" class="mus-elements"></div>
+        <div id="musJobs" class="mus-jobs"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">🎮 游戏制作（gamestudio：设计 → 代码 → 构建 → 调优）</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <input id="gmIdea" class="ipt" style="flex:1;min-width:200px" placeholder="游戏点子（例：一个关于记忆与遗忘的解谜）">
+          <button class="btn primary" id="gmGo">🎮 构建</button>
+          <button class="btn ghost" id="gmEngines">查看引擎</button>
+        </div>
+        <div class="sub" id="gmNote" style="margin:8px 0"></div>
+        <div id="gmOut" class="mod-result" hidden></div>
+        <div id="gmJobs" class="mus-jobs"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">🎥 音视频制作（studio：选题 → 写稿 → 配音 → 成片）</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <input id="svTopic" class="ipt" style="flex:1;min-width:200px" placeholder="选题（例：三个月营收从 0 到 10 万的复盘）">
+          <button class="btn primary" id="svGo">🎬 全流程制作</button>
+          <button class="btn ghost" id="svCap">查看环境能力</button>
+        </div>
+        <div class="sub" id="svNote" style="margin:8px 0"></div>
+        <div id="svOut" class="mod-result" hidden></div>
+      </div>
+    </section>
+
+<section class="tab-pane" id="tab-brain" hidden>
+      <div class="pane-head"><div class="pane-title">记忆 · 学习 · 进化中心 <span class="tag violet">全部模块</span></div></div>
+      <!-- 第 8 条：这一屏原本是文件转换器，记忆进化埋在页面深处。
+           现在把全模块学习产出提到首位：一眼看出系统学到什么、哪个模块在退步。 -->
+      <div class="panel" id="mhubPanel">
+        <div class="panel-title">🧬 全模块记忆 · 学习 · 进化中枢（汇总所有功能模块的学习产出，不只是技能）</div>
+        <div id="mhubStats" class="stat-row"></div>
+        <div id="mhubAlerts"></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0">
+          <select id="mhubMod" class="ipt" style="max-width:190px"><option value="">全部模块</option></select>
+          <span class="sub" id="mhubNote"></span>
+        </div>
+        <div id="mhubMods" class="mh-mods"></div>
+        <div id="mhubList" class="mh-list"></div>
+      </div>
+  <div class="panel">
+    <div class="panel-title">📁 文件互换工作台（docx/md/html/xlsx/csv/json ⇄ 互转 · 全本地处理不上传 · 隐私安全）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input type="file" class="ipt" id="cvFile" style="flex:1;min-width:200px">
+      <select class="ipt" id="cvTarget" style="max-width:130px">
+        <option value="md">→ Markdown</option>
+        <option value="html">→ HTML</option>
+        <option value="docx">→ Word(docx)</option>
+        <option value="xlsx">→ Excel(xlsx)</option>
+        <option value="json">→ JSON</option>
+        <option value="csv">→ CSV</option>
+        <option value="txt">→ 纯文本</option>
+        <option value="tidy">→ 整理格式</option>
+      </select>
+      <button class="btn primary" id="cvGo">开始转换</button>
+    </div>
+    <pre class="mod-result" id="cvResult" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📷 拍照 / 视频录制（调用设备摄像头 · 照片视频可直接送入音视频流水线）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" id="capPhoto">📷 拍照</button>
+      <button class="btn ghost" id="capVideo">🎥 录制视频</button>
+      <button class="btn ghost" id="capScreen">🖥 录制屏幕</button>
+      <select class="ipt" id="capCam" style="max-width:200px"></select>
+    </div>
+    <video id="capPreview" class="cap-preview" autoplay playsinline muted></video>
+    <div class="row" style="gap:8px;margin-top:8px" id="capActions" hidden>
+      <button class="btn primary" id="capSnap">拍下当前帧</button>
+      <button class="btn primary" id="capStop">停止录制</button>
+    </div>
+    <pre class="mod-result" id="capLog" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🐾 十二生肖养成（12 只同屏 · 自主行动 · 点击互动喂食/玩耍/抚摸 · 升级解锁下一只）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap" id="zodiCtl"><span class="sub">加载中…</span></div>
+  </div>
+      <div class="brain-grid">
+        <div class="card">
+          <div class="card-t">自我记忆 <button class="btn ghost small" id="memAddBtn">+ 添加记忆</button></div>
+          <div class="row"><input id="memQ" placeholder="检索关键词（留空显示全部）"><button class="btn ghost small" id="memSearchBtn">检索</button></div>
+          <div class="memory-list auto-scroll" id="memList"></div>
+        </div>
+        <div class="card">
+          <div class="card-t">学习曲线</div>
+          <div class="learn-grid" id="learnGrid"></div>
+        </div>
+        <div class="card">
+          <div class="card-t">专家会诊 <span class="sub">4 位专家独立视角</span></div>
+          <div class="row" style="margin-bottom:10px">
+            <select id="agentSel">
+              <option value="analyst">🔍 分析专家</option>
+              <option value="strategist">🎯 战略顾问</option>
+              <option value="planner">🛠 项目策划</option>
+              <option value="critic">🛡 风控审计</option>
+            </select>
+            <label class="check-inline"><input type="checkbox" id="agentDepth">深度</label>
+          </div>
+          <textarea id="agentQ" rows="2" placeholder="抛一个问题，让专家独立分析…"></textarea>
+          <div class="row" style="margin-top:10px;justify-content:flex-end">
+            <button class="btn primary" id="agentGoBtn">开始会诊</button>
+          </div>
+          <div id="agentResult" class="sub" style="margin-top:10px;white-space:pre-wrap">还没问过专家。写下一个问题，四位专家会各自给出独立视角。</div>
+        </div>
+        <div class="card">
+          <div class="card-t">知识库 <span class="sub" id="knCount"></span></div>
+          <div class="row" style="margin-bottom:10px">
+            <input id="knQ" placeholder="检索沉淀知识…" style="flex:1">
+            <button class="btn ghost small" id="knSearchBtn">检索</button>
+          </div>
+          <div class="row" style="margin-bottom:10px;gap:8px">
+            <input id="knAddQ" placeholder="问题" style="flex:1">
+            <input id="knAddA" placeholder="答案" style="flex:1">
+            <button class="btn ghost small" id="knAddBtn">存入</button>
+          </div>
+          <div class="knowledge-list auto-scroll" id="knList"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:var(--sp-4)">
+        <div class="card-t">进化记录 <span class="sub" id="evoCount"></span></div>
+        <div class="evo-list auto-scroll" id="evoList"></div>
+      </div>
+    </section>
+
+    <!-- ===== 技能军械库 ===== -->
+    <section class="tab-pane" id="tab-skills" hidden>
+  <div class="pane-head">
+    <div class="pane-title">技能军械库 <span class="tag violet" id="skTotal">300+</span></div>
+    <div class="toolbar">
+      <input id="skQ" placeholder="检索技能…" style="width:200px">
+      <button class="btn ghost" onclick="refreshSkills()">刷新</button>
+    </div>
+  </div>
+  <!-- 第 9 条：原来分类筛选读的是 s.cat，而 API 返回的是数组元组，
+       cat 全是 undefined → 分类 chips 形同虚设，这就是"边界不清"的由来。
+       现在分四层：用途速查 / 内置分类 / 外部能力域 / 边界重叠告警。 -->
+  <div class="panel">
+    <div class="panel-title">🎯 用途速查（先说你要干什么，这里直接告诉你该调哪类）</div>
+    <div id="skClusters" class="sk-clusters"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📦 库容与可信度</div>
+    <div id="skTrust" class="sk-trust"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">⚠️ 边界重叠告警（按分类找不到它，但它命中多个能力域）<span class="tag" id="skOverlapN">0</span></div>
+    <div id="skOverlaps" class="sk-overlaps"></div>
+  </div>
+  <!-- 覆盖体检：把"哪儿没东西"也摊开。原来零覆盖能力域被 filter 掉、
+       待归类/无描述只有计数，缺口全是隐形的（这半边比"重叠告警"更关键）。 -->
+  <div class="panel">
+    <div class="panel-title">🩺 覆盖体检（哪里有、哪里空、哪里重复）</div>
+    <div id="skCoverage" class="sk-coverage"></div>
+  </div>
+  <div class="sk-filter" id="skFilter"></div>
+  <div class="sk-grid auto-scroll" id="skGrid"></div>
+  <div class="panel" style="margin-top:14px">
+    <div class="panel-title">全网技能发现 · 自我进化 <span class="tag violet">GitHub 实时检索</span></div>
+    <div class="fw-apply" style="margin-bottom:8px">
+      <select id="skDiscCat" style="flex:0 0 150px">
+        <option value="agent skill">智能体技能</option>
+        <option value="mcp server">MCP 服务</option>
+        <option value="awesome llm">大模型应用</option>
+        <option value="ai assistant">AI 助手</option>
+      </select>
+      <input id="skDiscQ" placeholder="或输入任意关键词，如 langchain / autogen…" style="flex:2">
+      <button class="btn primary" id="skDiscBtn">🔍 全网发现</button>
+      <button class="btn ghost" id="skVerifyBtn">🧬 核验全部外部源</button>
+    </div>
+    <div class="sk-disc" id="skDisc" hidden>
+      <div class="sk-disc-list auto-scroll" id="skDiscList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Agent 管理中心（paseo 编排联动） ===== -->
+<section class="tab-pane" id="tab-agents" hidden>
+  <!-- 第 10 条：多 Agent 协作。放在 Paseo 面板之前——因为 Paseo 依赖外部守护进程，
+       实测本机多数函数返回空；而本机真实的 7 个模型通道 + opencode CLI 是可用的。 -->
+  <div class="pane-head">
+    <div class="pane-title">Agent 管理中心 <span class="tag violet">多 Agent 协作网</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="amRefresh">🔄 刷新</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧩 可用 Agent 后端（<span id="amCount">0</span> 个 · 自动探测通道/CLI/专家）</div>
+    <div id="amBackends" class="am-grid"></div>
+    <div class="sub" id="amNote" style="margin-top:8px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🗣️ 多 Agent 会商（真并发调用 · 各后端独立作答）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select id="amTask" class="ipt" style="max-width:130px">
+        <option value="analysis">分析类</option><option value="strategy">战略类</option>
+        <option value="coding">工程类</option><option value="writing">写作类</option>
+        <option value="review">评审类</option><option value="creative">创意类</option>
+      </select>
+      <input id="amQ" class="ipt" style="flex:1;min-width:200px" placeholder="要会商的问题（例：该不该把定价从 99 提到 129）">
+      <button class="btn primary" id="amDebate">🗣️ 开始会商</button>
+    </div>
+    <div id="amDebateOut" style="margin-top:10px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📦 GitHub 技能包（<span id="amPackN">0</span> 个来源 · 检索到 <span id="amPackF">0</span> 个候选 · 装载需人工确认）</div>
+    <div id="amPacks" class="am-packs"></div>
+  </div>
+  <div class="pane-head" style="margin-top:18px">
+    <div class="pane-title" style="font-size:var(--fs-m)">Paseo 守护进程（可选 · 依赖外部安装）</div>
+    <div class="toolbar">
+      <button class="btn ghost" id="agRefresh">刷新</button>
+      <button class="btn primary" id="agInstall">📥 从 GitHub 下载 paseo</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title" id="agStatusHead">🌐 paseo 编排状态</div>
+    <div class="mod-result" id="agStatus" hidden></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost" id="agDaemonStart">▶ 启动 daemon</button>
+      <button class="btn ghost" id="agDaemonRestart">🔄 重启 daemon</button>
+      <button class="btn ghost" id="agDaemonStop">⏹ 停止 daemon</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🎯 联动联调 · 指挥台 <span class="tag violet">跨 Agent 协同</span></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <input id="agRunPrompt" placeholder="任务描述（agent run，后台运行）" style="flex:3;min-width:260px">
+      <input id="agRunTitle" placeholder="任务标题（可选）" style="flex:1;min-width:120px">
+      <input id="agRunProvider" placeholder="provider（可选，如 claude/codex）" style="flex:1;min-width:140px">
+      <button class="btn primary" id="agRunGo">🚀 创建并运行</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="agSendId" placeholder="目标 Agent ID（联动联调）" style="flex:1;min-width:150px">
+      <input id="agSendPrompt" placeholder="指挥指令（agent send，不等待完成）" style="flex:3;min-width:280px">
+      <button class="btn primary" id="agSendGo">📣 投递指令</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <input id="agStopId" placeholder="Agent ID（停止）" style="flex:1;min-width:150px">
+      <button class="btn ghost" id="agStopGo">⏹ 停止 Agent</button>
+      <input id="agLogsId" placeholder="Agent ID（看日志）" style="flex:1;min-width:150px">
+      <button class="btn ghost" id="agLogsGo">📜 拉日志</button>
+    </div>
+    <pre class="mod-result" id="agActionOut" hidden>执行一次操作，返回结果会显示在这里。</pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title" id="agAgentsHead">🤖 已联动 Agent</div>
+    <div class="mod-result" id="agAgents" hidden></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🔗 协同流水（联动联调协调互动协同台账）</div>
+    <pre class="mod-result" id="agCoop" hidden></pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🧾 落地日志</div>
+    <pre class="mod-result" id="agLog" hidden></pre>
+  </div>
+</section>
+
+<!-- ===== 24h 自主运营 ===== -->
+<section class="tab-pane" id="tab-auto" hidden>
+  <!-- 第 11 条：全媒体运营。放在自主运营面板首位——需求说的"自托管全运营"就落在这里 -->
+  <div class="panel">
+    <div class="panel-title">📡 全媒体运营中枢（文案/图片/视频 → 多平台发布 → 反馈与订单回流）</div>
+    <div id="pubStats" class="stat-row"></div>
+    <div class="sub" id="pubNote" style="margin:8px 0"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="pubKw" class="ipt" style="flex:1;min-width:180px" placeholder="客户关键词（逗号分隔，用于全网抓取客户与情报）">
+      <button class="btn ghost" id="pubKwSave">保存关键词</button>
+      <button class="btn ghost" id="pubHarvest">🌐 全网抓取</button>
+    </div>
+    <div id="pubHarvestOut" class="sub" style="margin:6px 0"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📋 发布队列（默认不自动对外发布 · 不可逆动作留人工确认）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="pubTitle" class="ipt" style="flex:1;min-width:180px" placeholder="内容标题">
+      <input id="pubBody" class="ipt" style="flex:1;min-width:180px" placeholder="内容正文">
+      <button class="btn primary" id="pubEnq">加入队列</button>
+    </div>
+    <div id="pubPlatforms" class="pub-plats"></div>
+    <!-- 第 11 条：无 API 凭证时，运营者真实发布后手动登记（须留核验依据，见 publisher.js）
+         与系统自动发布分开计数，不伪造"自动已发布"。-->
+    <div class="pub-manual">
+      <input id="pubManualId" class="ipt" style="max-width:120px" placeholder="队列 ID">
+      <input id="pubManualUrl" class="ipt" style="flex:1;min-width:150px" placeholder="已发布链接（核验依据）">
+      <input id="pubManualNote" class="ipt" style="flex:1;min-width:150px" placeholder="说明（谁、在哪、多少字…）">
+      <button class="btn ghost" id="pubManualBtn">登记手动发布</button>
+    </div>
+    <div id="pubQueue" class="pub-queue"></div>
+  </div>
+  <div class="pane-head" style="margin-top:16px">
+    <div class="pane-title" style="font-size:var(--fs-m)">24h 自主巡游</div>
+  </div>
+  <div class="pane-head">
+    <div class="pane-title">24h 全托管自主运营 <span class="tag violet">一直在线 · 自主进化</span></div>
+    <div class="toolbar">
+      <select class="ipt" id="autoInterval" style="max-width:130px" title="自动执行节奏">
+        <option value="300">每 5 分钟</option>
+        <option value="900">每 15 分钟</option>
+        <option value="1800">每 30 分钟</option>
+        <option value="3600">每 1 小时</option>
+        <option value="21600">每 6 小时</option>
+      </select>
+      <button class="btn ghost" id="autoToggleBtn">⏸ 暂停托管</button>
+      <button class="btn ghost" id="autoStatusBtn">🔄 刷新状态</button>
+      <button class="btn primary" id="autoRunBtn">▶ 立即跑一轮</button>
+    </div>
+  </div>
+  <div id="autoAlert" class="sub" style="padding:0 4px 8px;color:#ff8a8a" hidden>当前无异常告警。</div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-v" id="autoRound">0</div><div class="stat-l">已完成轮次</div></div>
+    <div class="stat"><div class="stat-v" id="autoState">–</div><div class="stat-l">运行状态</div></div>
+    <div class="stat"><div class="stat-v" id="autoNext">–</div><div class="stat-l">下轮倒计时</div></div>
+    <div class="stat"><div class="stat-v" id="autoLogN">0</div><div class="stat-l">日志条数</div></div>
+    <div class="stat"><div class="stat-v" id="autoWheel">–</div><div class="stat-l">模块轮巡</div></div>
+    <div class="stat"><div class="stat-v" id="autoOk">–</div><div class="stat-l">近 20 轮健康度</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">功能模块库 <span class="tag violet" id="modTotal"></span></div>
+      <input class="ipt" id="modKw" placeholder="搜索模块（体检/止损/热点…）" style="max-width:220px">
+    </div>
+    <div class="mod-grid" id="modGrid"></div>
+    <pre class="mod-result" id="modResult" hidden>点左侧任一模块，体检明细会显示在这里。</pre>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">执行链路 · 分步健康与单步重跑</div>
+      <span class="sub" id="autoStepHint">点任一步可单独重跑（排障用，不影响轮次编号）</span>
+    </div>
+    <div class="mod-grid" id="autoStepGrid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">最近一轮 · 动作清单</div>
+    <pre class="auto-round" id="autoLast"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">运营日志（最近 15 轮）</div>
+    <div class="auto-log auto-scroll" id="autoLog"></div>
+  </div>
+  <div class="sub" style="padding:8px 4px">每 15 分钟自动执行一轮：全网情报采集（GitHub 趋势/热点/新闻/气象）→ 知识沉淀 → 技能自我进化（GitHub 发现新模块并收录）→ 功能模块轮巡（56 个真实模块：数据体检/决策运营/知识运营/项目运营/内容复用/风险值守/情报采集/大脑进化）→ 员工技能实时刷新 → 通道评分优化 → 生成自运营报告。即使无人对话，系统也在持续学习与进化。</div>
+
+  <div class="panel" style="margin-top:10px">
+    <div class="panel-head">
+      <div class="panel-title">🤖 自主发布引擎 <span class="tag green">L1 浏览器自主</span></div>
+      <div class="toolbar">
+        <button class="btn ghost" id="apbStatusBtn">🔄 刷新登录态</button>
+      </div>
+    </div>
+    <div style="margin:8px 0">
+      <select id="apbPlatform" class="ipt" style="max-width:180px"></select>
+      <button class="btn ghost" id="apbLoginCheck">🔍 探测登录态</button>
+      <label class="chk" style="margin-left:10px"><input type="checkbox" id="apbDry" checked> 拟稿不发布</label>
+    </div>
+    <div class="sub" style="padding:6px 2px">🚀 选择平台 → 框里填标题/正文（或从下方"在库资产"一键取料）→ 「下一步」拟稿到平台网页（不点发布）→ 核实无误再「真实发布」。真实发布会留下平台 URL 证据并记入审计。</div>
+    <div style="margin:8px 0">
+      <input class="ipt" id="apbTitle" placeholder="标题（≤60 字）" style="flex:1;min-width:200px;display:block;width:100%;margin-bottom:6px">
+      <textarea class="ipt" id="apbBody" rows="4" placeholder="正文（≤5000 字）" style="width:100%"></textarea>
+    </div>
+    <div class="toolbar" style="flex-wrap:wrap">
+      <button class="btn primary" id="apbNext">① 拟稿到平台 <span id="apbDryTag">(dry-run)</span></button>
+      <button class="btn danger" id="apbPublish">② 真实发布 <span id="apbRealTag"></span></button>
+      <select id="apbAssetPick" class="ipt" style="max-width:260px" onchange="autopubPickAsset(this)">
+        <option value="">从在库内容资产取料…</option>
+      </select>
+    </div>
+    <div style="margin:10px 0;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:8px;max-height:180px;overflow:auto">
+      <b>在库内容资产（conductor 产物 · data/assets）</b>
+      <div id="apbAssets" class="sub">加载中…</div>
+    </div>
+    <div id="apbResult" class="sub" style="margin:8px 0;padding:8px;background:#f4f7ff;border:1px solid #dbe6ff;border-radius:8px"></div>
+    <div class="panel-title" style="font-size:13px;margin-top:8px">发布日志（各平台最近记录）</div>
+    <div id="apbLog" class="sub" style="white-space:pre-wrap">每次发布后，平台回执会记在这里。</div>
+  </div>
+</section>
+
+<!-- ===== 作战指挥塔：联调联动主循环 ===== -->
+<section class="tab-pane" id="tab-cmd" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🎖️ 作战指挥塔<span class="tag violet">全局数据化 · 指挥建议</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="cmdStatusBtn">🔄 刷新</button>
+      <button class="btn primary" id="cmdRunBtn">⚡ 立即执行一轮</button>
+    </div>
+  </div>
+  <!-- 第 3 条：Orca 桌面指挥台（一个桌面指挥所有编码 AI） -->
+  <div class="panel" id="orcaPanel">
+    <div class="panel-title">🐋 Orca 指挥台（一个桌面指挥所有编码 AI · <span id="orcaExecN">0</span> 个执行体）</div>
+    <div id="orcaStats" class="stat-row"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="orcaTask" class="ipt" style="flex:1;min-width:200px" placeholder="派个活（例：检查系统健康）">
+      <select id="orcaArch" class="ipt" style="max-width:160px"></select>
+      <select id="orcaPri" class="ipt" style="max-width:110px" title="优先级：数字小=优先">
+        <option value="1">最高</option><option value="5" selected>中</option><option value="9">最低</option>
+      </select>
+      <button class="btn primary" id="orcaEnq">入队</button>
+      <button class="btn ghost" id="orcaRun">执行队列</button>
+      <label class="row" style="gap:4px;align-items:center;font-size:var(--fs-s)">槽位
+        <select id="orcaSlots" class="ipt" style="max-width:70px"></select>
+      </label>
+    </div>
+    <div id="orcaExecs" class="orca-execs" style="margin-top:10px"></div>
+    <div id="orcaRecent" style="margin-top:8px"></div>
+    <div id="orcaJobs" class="orca-jobs"></div>
+    <div id="orcaCharts" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <div class="panel"><div class="panel-title">📊 实时图表</div>
+        <canvas id="chartUtil" height="120"></canvas>
+        <canvas id="chartThroughput" height="120"></canvas>
+        <canvas id="chartLatency" height="120"></canvas>
+        <canvas id="chartSuccess" height="120"></canvas>
+      </div>
+      <div class="panel"><div class="panel-title">👥 人员脉络</div>
+        <div id="pulseMap" style="max-height:400px;overflow:auto"></div>
+      </div>
+      <div class="panel"><div class="panel-title">🕸 场景动态图</div>
+        <canvas id="sceneGraph" height="300"></canvas>
+        <div id="heatmap" class="sub" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div id="orcaWSStatus" class="sub" style="margin-top:8px;text-align:center">WebSocket: <span id="wsState">连接中...</span></div>
+  </div>
+
+<!-- 第 9 条：MetaGPT SOP 流水线 -->
+  <div class="panel" id="sopPanel">
+    <div class="panel-title">🏗 SOP 流水线（Code = SOP(Team) · 一行需求驱动五个角色 · 每阶段带 Review/Revise 闸门）</div>
+    <div id="sopStages" class="sop-stages"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="sopReq" class="ipt" style="flex:1;min-width:220px" placeholder="一行需求（Boss Requirement）例：做一个给小微商家用的自动获客工具">
+      <button class="btn primary" id="sopRun">启动虚拟研发团队</button>
+    </div>
+    <div class="sub" style="margin:6px 0">
+      闸门说明：产出由<strong>机械判据</strong>检查（是否覆盖该阶段必需要点），不靠模型自述"通过"。不达标自动打回重做，超过上限则<strong>阻塞并如实上报</strong>，绝不带着问题进入下一阶段。
+    </div>
+    <div id="sopOut" style="margin-top:8px"></div>
+  </div>
+<!-- Graphify 语义知识图谱：记忆层/七层架构/学习闭环的共同底座 -->
+  <div class="panel" id="graphPanel">
+    <div class="panel-title">🕸 语义知识图谱（<span id="gpNodes">0</span> 节点 / <span id="gpEdges">0</span> 边 · 每条边都可回溯到来源）</div>
+    <div id="gpStats" class="stat-row"></div>
+    <div id="gpKinds" class="gp-kinds"></div>
+    <div id="gpTop" class="gp-top"></div>
+    <div id="gpOrphan" class="gp-orphan"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input id="gpNode" class="ipt" style="flex:1;min-width:200px" placeholder="查邻域：粘贴节点 id（如 mod:store 或 layer:governance）">
+      <button class="btn primary" id="gpFind">查邻域</button>
+    </div>
+    <div id="gpNb" style="margin-top:8px"></div>
+  </div>
+<!-- 第 1 条：七层架构自上而下 + 闭环四步，全部由真实探测得出状态 -->
+  <div class="panel" id="archPanel">
+    <div class="panel-title">🧱 AI 智能体七层架构（自上而下 · 状态由真实探测得出，非静态声明）</div>
+    <div class="arch-stack" id="archStack"></div>
+    <div class="sub" id="archTotals" style="margin:8px 0"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🔁 业务闭环：感知环境 → 推理规划 → 调用工具 → 记忆反馈</div>
+    <div class="arch-loop" id="archLoop"></div>
+  </div>
+  <!-- 第 7 条：七种 Agent 编排架构，可选可跑 -->
+  <div class="panel" id="orchPanel">
+    <div class="panel-title">🧠 七种 Agent 编排架构（按演进顺序 · 可切换 · 记 trace）</div>
+    <div id="orchList" class="orch-list"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <select id="orchKind" class="ipt" style="max-width:190px"></select>
+      <input id="orchTask" class="ipt" style="flex:1;min-width:200px" placeholder="要执行的任务">
+      <button class="btn primary" id="orchRun">▶ 执行</button>
+      <button class="btn ghost" id="orchRec">🎯 推荐架构</button>
+    </div>
+    <div id="orchOut" style="margin-top:10px"></div>
+    <div class="orch-sub2">
+      <!-- 互动管理控制命令：统一入口，后端与前端共用同一实现 -->
+      <div class="panel-title" style="margin-top:10px">🎛️ 互动控制命令（编排/链路/对比/竞速/学习）</div>
+      <div id="orchCmds" class="cmd-list"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+        <select id="orchCmdSel" class="ipt" style="max-width:180px"></select>
+        <input id="orchCmdArg" class="ipt" style="flex:1;min-width:180px" placeholder="命令参数（可留空，默认值即用法示例）" oninput="$('#orchTask').value=this.value">
+        <button class="btn primary" id="orchCmdGo">执行命令</button>
+        <button class="btn ghost" id="orchChaosBtn">混沌演练</button>
+      </div>
+      <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+        <div style="flex:1;min-width:260px"><div class="panel-title" style="font-size:var(--fs-s)">🧬 混沌治理（注入受控故障，验证优雅降级）</div><div id="chaosBox" class="chaos-box"></div></div>
+        <div style="flex:1;min-width:260px"><div class="panel-title" style="font-size:var(--fs-s)">📚 学习闭环（从真实 trace 学出模式）</div><div id="orchLearn" class="learn-box"></div></div>
+      </div>
+    </div>
+  </div>
+  <!-- 第 12 条：全局态势 -->
+  <div class="panel" id="wbPanel">
+    <div class="panel-title">🎖️ 全局态势（所有功能模块实时状态 · 红黄绿由真实数据推导）</div>
+    <div id="wbModules" class="wb-grid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📣 指挥建议（每条都带触发依据与可执行动作，可核查）</div>
+    <div id="wbAdvice" class="wb-advice"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">本轮决策 · 主攻方向</div>
+    <pre class="auto-round" id="cmdMission"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">最近行动 · 真实验收证据</div>
+    <pre class="auto-round" id="cmdLast"></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">指挥执行台账（最近 30 轮）</div>
+    <div class="auto-log auto-scroll" id="cmdLog"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">发布列车状态</div>
+    <pre class="auto-round" id="cmdTrain"></pre>
+  </div>
+  <div class="sub" style="padding:8px 4px">指挥塔把散落引擎串成主循环：目标缺口（赚钱目标）→ 决定本轮主攻（增长件/发车/留存/还债/技能落地/内容资产）→ 真实执行（落盘 data/assets、git clone 技能、装载发布列车）→ 验证证据 → 落账审计。凡是没真实发生的一律如实记"跳过"，绝不编造成功。失败自动进监控告警通道。</div>
+</section>
+
+<!-- ===== 同在守护：六型人格 / 活下去手册 / 同路人 / 年报与止损线 / 内容复用器 ===== -->
+<section class="tab-pane" id="tab-guard" hidden>
+  <div class="pane-head">
+    <div class="pane-title">同在守护 <span class="tag">作战策略智慧库</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="guardRefresh">刷新全部</button>
+    </div>
+  </div>
+  <!-- 第 12 条后半：守护不是"资料"，是可执行的作战策略数据中心。
+       每条策略必须有 适用场景 / 动作 / 判据，并标出此刻哪几条真正适用。 -->
+  <div class="panel">
+    <div class="panel-title">🕯️ 策略智慧库（<span id="wisMatched">0</span> 条此刻适用 / 共 <span id="wisTotal">0</span> 条作战策略）</div>
+    <div id="wisList" class="wis-list"></div>
+  </div>
+
+  <!-- 4a 六型决策人格 -->
+  <div class="panel">
+    <div class="panel-title" id="personaHead">🧭 六型决策人格 · 抉择测试（20 题 · 90 秒）</div>
+    <div class="guard-play">
+      <div id="personaWrap"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost" id="personaQuick">快速抉择（3 题）</button>
+        <button class="btn primary" id="personaGo" disabled>开始 20 题测试</button>
+      </div>
+    </div>
+    <pre class="mod-result" id="personaResult" hidden>作答 20 题后，六型画像会显示在这里。</pre>
+  </div>
+
+  <!-- 4b 活下去手册 -->
+  <div class="panel">
+    <div class="panel-title" id="manualHead">📖 活下去手册（12 本 · 免费免登录 · 使命层）</div>
+    <div class="crisis-band" id="crisisBand">如有伤害自己的想法：拨打 12356（24h）→ 系统立即转介，优先于一切功能。</div>
+    <div class="manual-grid" id="manualGrid"></div>
+    <div id="manualOpen" hidden style="margin-top:10px">点上面任一本手册，全文会展开在这里。</div>
+  </div>
+
+  <!-- 4c 同路人 -->
+  <div class="panel">
+    <div class="panel-title" id="peerHead">🕯️ 同路人（T1 灯角 / T2 递一把 / T3 被帮账本）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="peerTopic" placeholder="你的处境关键词（如：被裁 / 想辞职 / 负债…）" style="flex:1;min-width:180px">
+      <button class="btn primary" id="peerLightGet">看同卦灯角</button>
+    </div>
+    <div id="peerLights" class="peer-lights" style="margin-top:8px"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+      <textarea class="ipt" id="peerStory" rows="2" placeholder="T1 点亮你的灯：300 字以内，模板三问——当时最怕什么 / 第一步做了什么 / 最想对谁说一句什么（勾选下方授权后提交）"></textarea>
+    </div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
+      <label style="color:var(--ink-2);font-size:12px"><input type="checkbox" id="peerOptin" checked> 同意匿名化发布（隐身可随时退出）</label>
+      <button class="btn primary" id="peerLightAdd">提交 T1 → 点亮灯角</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:12px;color:var(--ink-2)">T2 递一把（限 3 次/日）</div>
+        <select class="ipt" id="peerKind" style="width:100%">
+          <option value="card">递手册卡</option>
+          <option value="sentence">递一句话（≤80字）</option>
+          <option value="resource">递白名单资源</option>
+        </select>
+      </div>
+      <input class="ipt" id="peerPayload" placeholder="手册编号(如 cai/zai) 或一句话（须过禁比较/金额句）" style="flex:2;min-width:200px">
+      <input class="ipt" id="peerFrom" placeholder="我(代号)" style="flex:1;min-width:120px">
+      <button class="btn" id="peerHandoff">递出</button>
+    </div>
+    <pre class="mod-result" id="peerResult" hidden>提交同路人申请后，审核结果会显示在这里。</pre>
+  </div>
+
+  <!-- 4d 年度报告 + 止损线 -->
+  <div class="panel">
+    <div class="panel-title" id="annualHead">📊 年度决策报告 + 止损线 L1–L4</div>
+    <div class="stoploss-grid" id="stopGrid"></div>
+    <pre class="mod-result" id="annualResult" hidden>生成年报后，结论会显示在这里。</pre>
+  </div>
+
+  <!-- 4e 内容复用器 E1 -->
+  <div class="panel">
+    <div class="panel-title" id="repurpHead">🔁 内容复用器 E1 · 一料五吃</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="repRaw" style="max-width:130px">
+        <option value="R2">R2 同路人素材</option>
+        <option value="R1">R1 案例卡</option>
+        <option value="R3">R3 数据切片</option>
+      </select>
+      <input class="ipt" id="repSource" placeholder="来源（如：被裁同路人 T1）" style="flex:1;min-width:150px">
+      <input class="ipt" id="repText" placeholder="素材正文（≤2000字，只喂一次）" style="flex:2;min-width:220px">
+      <button class="btn primary" id="repFeed">入库</button>
+    </div>
+    <div class="rep-list" id="repList" style="margin-top:8px"></div>
+  </div>
+
+  <div class="sub" style="padding:8px 4px">「同在守护」＝四份「我一直在」规范的可执行落地：抉择测试（P2）、活下去手册（§2.8）、同路人（§2.9）、年报与止损线（v19 A1 / FINAL-2.0 §10.4）、内容复用器（E1）。</div>
+</section>
+
+<!-- ===== 战情室：发布列车 / 客服工单 / 冷启动 Playbook / 故事工厂 / MCP Agent-ready / 七段报告 ===== -->
+<section class="tab-pane" id="tab-warroom" hidden>
+  <div class="pane-head">
+    <div class="pane-title">战情室<span class="tag">实时数据 · 图表 · 人员脉络 · 场景动态</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="warRefresh">刷新全部</button>
+    </div>
+  </div>
+  <!-- 第 13 条：图表 + 人员脉络 + 场景动态，全部用 Canvas 手绘，零外部依赖 -->
+  <div class="panel">
+    <div class="panel-title">📈 近 14 天营收趋势（已结算实收 vs 待到账）</div>
+    <canvas id="warRev" class="war-cv" width="900" height="200"></canvas>
+    <div id="warRevNote" class="sub"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📊 获客漏斗分布</div>
+    <canvas id="warFunnel" class="war-cv" width="900" height="170"></canvas>
+    <div id="warFunnelNote" class="sub"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧩 任务状态构成</div>
+    <div id="warTaskPie" class="wb-grid"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">👥 人员工作脉络（谁在办什么 · 办了几项 · 完成几项）</div>
+    <div id="warPeople" class="wb-people"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🎬 工作场景动态（近 24h 系统实际发生的事）</div>
+    <div id="warScene" class="wb-scene"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📚 学习产出趋势（按模块堆叠）</div>
+    <canvas id="warLearn" class="war-cv" width="900" height="180"></canvas>
+  </div>
+
+  <!-- 七段决策报告 -->
+  <div class="panel">
+    <div class="panel-title">📄 七段决策报告（FINAL-1.1 §2.2 宪法级 · 第7段灯角）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="reportTopic" placeholder="你的主题（如：被裁后要不要立刻回老家）" style="flex:2;min-width:220px">
+      <input class="ipt" id="reportAnswer" placeholder="补充信息（可选）" style="flex:1;min-width:160px">
+      <button class="btn primary" id="reportGo">生成七段报告</button>
+    </div>
+    <pre class="mod-result" id="reportResult" hidden></pre>
+  </div>
+
+  <!-- E4 发布列车 -->
+  <div class="panel">
+    <div class="panel-title" id="trainHead">🚂 发布列车（E4 · 双周一班 · 三格装载）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="trainSlot" style="max-width:140px">
+        <option value="growth">增长件</option>
+        <option value="retention">留存件</option>
+        <option value="debt">还债件</option>
+      </select>
+      <input class="ipt" id="trainTitle" placeholder="feature 标题" style="flex:1;min-width:180px">
+      <button class="btn primary" id="trainLoad">装载本班</button>
+      <button class="btn" id="trainDepart">发车</button>
+    </div>
+    <div class="auto-log" id="trainBox" style="margin-top:8px"></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input class="ipt" id="parkIdea" placeholder="新想法登记 parking lot（火车不等人，lot 不删）" style="flex:1;min-width:220px">
+      <button class="btn ghost" id="parkGo">记入 lot</button>
+    </div>
+    <pre class="mod-result" id="trainResult" hidden></pre>
+  </div>
+
+  <!-- E3 客服工单 -->
+  <div class="panel">
+    <div class="panel-title" id="ticketHead">🎫 客服工单（E3 · 四通道 / P0当日·72h / P1 48h / P2 周批）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="tickSubject" placeholder="主题（如：误扣款/建议/功能故障…自动分级）" style="flex:1;min-width:180px">
+      <input class="ipt" id="tickMsg" placeholder="工单内容" style="flex:2;min-width:220px">
+      <button class="btn primary" id="tickAdd">开单</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button class="btn" id="tickSunday" title="聚合超 7 天的 P2 工单进入周日共建批阅场">周日周批聚合</button>
+      <a class="btn" id="assistEntry" href="/assist.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">🙋 申请协助</a>
+      <a class="btn" id="careElderEntry" href="/care/elder.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">🧓 老人端</a>
+      <a class="btn" id="careFamilyEntry" href="/care/family.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">👨‍👩‍👧 子女端</a>
+      <span class="sub" id="tickBatchInfo" style="font-size:12px;align-self:center"></span>
+    </div>
+    <div class="sub" style="padding:6px 2px" id="tickBoard"></div>
+    <div class="auto-log" id="tickList" style="margin-top:6px"></div>
+  </div>
+
+  <!-- E2 冷启动 Playbook -->
+  <div class="panel">
+    <div class="panel-title" id="playbookHead">🌱 冷启动 Playbook（E2 · D1–D30 日级作战表）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="pbLaunch">启动（今天 = D1）</button>
+      <button class="btn" id="pbCheck">今日打卡</button>
+      <input class="ipt" id="pbDay" placeholder="补打卡 D?(如 12)" style="max-width:130px">
+      <button class="btn ghost" id="pbTallyReg">录注册数</button>
+      <input class="ipt" id="pbReg" placeholder="注册" style="max-width:90px">
+      <input class="ipt" id="pbPaid" placeholder="付费" style="max-width:90px">
+      <button class="btn ghost" id="pbTallyPaid">录付费数</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px" id="pbDays"></div>
+    <div class="sub" style="padding:6px 2px" id="pbGate"></div>
+  </div>
+
+  <!-- 故事工厂 -->
+  <div class="panel">
+    <div class="panel-title" id="foundryHead">🖋️ 故事工厂（FINAL-1.2 · S1–S9 半托管流水线）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="fPeerId" style="flex:1;min-width:180px">
+        <option value="">井A 授权灯角…</option>
+      </select>
+      <select class="ipt" id="fManualNo" style="flex:1;min-width:150px">
+        <option value="">井B 公版手册…</option>
+      </select>
+      <input class="ipt" id="fTitle" placeholder="书名（如《抉择志·被裁》）" style="flex:1;min-width:150px">
+      <button class="btn primary" id="fCreate">立项 S1+S2</button>
+    </div>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:var(--ink-2)">
+      <label><input type="checkbox" id="fDt" checked> 时间虚构</label>
+      <label><input type="checkbox" id="fDc" checked> 城市虚构</label>
+      <label><input type="checkbox" id="fDj" checked> 职业虚构</label>
+      <label><input type="checkbox" id="fDf"> 家庭虚构</label>
+      <span>复识别扰动工艺：至少 3 项虚构</span>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px" id="fPipe"></div>
+    <div class="auto-log" id="fBoard" style="margin-top:6px"></div>
+  </div>
+
+  <!-- A13 MCP -->
+  <div class="panel">
+    <div class="panel-title" id="mcpHead">🔌 Agent-ready（A13 · 三工具面 · deliberate ¥0.99）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="mcpDev" placeholder="开发者署名" style="flex:1;min-width:150px">
+      <input class="ipt" id="mcpRecharge" placeholder="充值 ¥（预付）" style="max-width:120px">
+      <button class="btn primary" id="mcpIssue">签发 API key</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+      <input class="ipt" id="mcpKey" placeholder="API key" style="flex:1;min-width:170px">
+      <select class="ipt" id="mcpTool" style="max-width:220px">
+        <option value="decision.deliberate">decision.deliberate（完整推演 ¥0.99）</option>
+        <option value="case.search">case.search（案例卡检索，免费）</option>
+        <option value="manual.get">manual.get（活下去手册，免费）</option>
+      </select>
+      <input class="ipt" id="mcpParams" placeholder="topic / kw / slug" style="flex:2;min-width:200px">
+      <button class="btn" id="mcpCall">调用</button>
+    </div>
+    <div class="sub" style="padding:6px 2px" id="mcpStat"></div>
+    <pre class="mod-result" id="mcpResult" hidden>发起一次调用，返回结果会显示在这里。</pre>
+  </div>
+
+  <div class="sub" style="padding:8px 4px">战情室＝第二编新立项的全部可执行件：E2 冷启动（D1–D30）/ E3 单人客服（四通道三时限）/ E4 发布列车（版本火车机制）/ 故事工厂（S1–S9 + 创作证据日志）/ A13 Agent-ready（三工具+计费+三不接边界）/ 七段报告（宪法级）。任何新想法先记 parking lot，火车不等人。</div>
+</section>
+
+<!-- ===== 商业中枢：订阅 / 排行榜 / 24h监控 / 半年千万 KPI ===== -->
+<section class="tab-pane" id="tab-subs" hidden>
+  <div class="pane-head">
+    <div class="pane-title">💳 订阅 · 全站收费墙 <span class="tag">10 次免费查 · 用完订阅弹窗</span></div>
+    <div class="toolbar"><button class="btn ghost" id="subsRefresh">刷新</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title" id="subsQuotaCard">🧾 我的额度</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap" id="subsStatusBox"></div>
+    <div id="subsNeedProof" hidden></div>
+    <div class="sub" id="inviteBox"></div>
+  </div>
+  <!-- 【2026-10-21 跨设备恢复】换了电脑/浏览器后这里能找回已付的订阅（落地页承诺"订阅自动恢复"的落地） -->
+  <div class="panel">
+    <div class="panel-title">🔁 换设备了？用邮箱找回订阅</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <input class="ipt" id="recEmail" type="email" placeholder="付款时填的邮箱" style="min-width:220px" autocomplete="email">
+      <button class="btn ghost" id="recSend">发送验证码</button>
+      <input class="ipt" id="recCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" style="min-width:140px" autocomplete="one-time-code">
+      <button class="btn" id="recLogin">找回订阅</button>
+    </div>
+    <div class="sub" id="recMsg" style="margin-top:8px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧠 我的沉淀（这些只属于你 · 到期不清空）</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap" id="myAssetsBox"><span class="sub">加载中…</span></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🛡️ 订阅方案（微信/支付宝收 · 入账一律支付宝 · 到期前 7 天提醒续费）</div>
+    <div class="subs-grid" id="subsPlansGrid"></div>
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap">
+      <input class="ipt" id="subsInviteCode" placeholder="我的邀请码（被推荐人填写，各返 1-12 个月/人）" style="flex:1;min-width:220px">
+      <button class="btn ghost" id="subsBind">绑定邀请码</button>
+      <button class="btn primary" id="subsTestPay">🧾 运营对账 · 确认到账</button>
+    </div>
+  </div>
+  <div class="panel" id="subsPendingBox" hidden>
+    <div class="panel-title">⏳ 待确认订单（买家付款后你来核验，确认即入账+激活订阅）</div>
+    <pre class="mod-result" id="subsPending" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧾 订单流水（全部入账支付宝）</div>
+    <pre class="mod-result" id="subsOrders" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">💳 收款配置（运营设置——买家扫码看这里）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="opToken" placeholder="运营令牌（云服务器上先填此，再配收款）" style="flex:1;min-width:180px">
+      <button class="btn ghost" id="opTokenSave">保存令牌</button>
+      <input class="ipt" id="payAccountCfg" placeholder="运营留存账号（仅运营可见，不向买家展示）" style="flex:1;min-width:200px">
+      <input class="ipt" id="payQrAlipay" placeholder="支付宝收款码图片 URL / base64" style="flex:2;min-width:220px">
+      <input class="ipt" id="payQrWechat" placeholder="微信收款码图片 URL / base64" style="flex:2;min-width:220px">
+      <button class="btn primary" id="payConfigSave">保存收款配置</button>
+    </div>
+    <div class="sub" id="payConfigStatus">保存收款配置后，状态会显示在这里。</div>
+  </div>
+  <div class="sub">订阅：首7天体验 ¥1（每人一次）· 月度 ¥99 · 季度 ¥269（合 ¥89.7/月）· 年度 ¥899（合 ¥74.9/月，省 24%）。邀请返利：1 个付费好友（≥月度）→ 返 1 个月；3 个付费好友（满 3 个季付）→ 返 3 个月；10 个（10×年付）→ 返 1 年；¥1 体验单不计入返利。收款渠道：国内用微信 / 支付宝，海外用 PayPal；入账统一进支付宝对公账号（银行账号不向买家展示）。</div>
+</section>
+
+<section class="tab-pane" id="tab-rank" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🏆 排行榜 <span class="tag">前一名必须严格比后一名 ≥1 · 谁补录谁重排</span></div>
+    <div class="toolbar"><button class="btn ghost" id="rankRefresh">刷新</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📊 积分榜（分）</div>
+    <div id="rankScoreBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">💰 金额榜（前一名永远比后一名多 1 元以上）</div>
+    <div id="rankMoneyBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">✍️ 补录（重排全榜）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="ipt" id="rankField" style="max-width:140px">
+        <option value="score">积分榜（分）</option>
+        <option value="money">金额榜（元）</option>
+      </select>
+      <input class="ipt" id="rankName" placeholder="上榜名字" style="flex:1;min-width:140px">
+      <input class="ipt" id="rankScore" placeholder="分数/金额（≥0）" style="max-width:140px">
+      <button class="btn primary" id="rankEnter">补录 · 重排</button>
+    </div>
+    <pre class="mod-result" id="rankResult" hidden>补录上榜后，结果会显示在这里。</pre>
+    <div class="sub" id="rankIntegrity" style="margin-top:6px"></div>
+  </div>
+</section>
+
+<section class="tab-pane" id="tab-watch" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🛰️ 24h 监控 · 告警 <span class="tag">异常即刻邮件 → 460123249@qq.com</span></div>
+    <div class="toolbar"><button class="btn ghost" id="watchScan">立即巡检</button><button class="btn ghost" id="watchRefresh">刷新</button></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🩺 当前体检</div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center" id="watchStatusBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🚨 最新告警（30 分钟冷静期防轰炸）</div>
+    <pre class="mod-result" id="watchAlerts" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🛠️ 自动自愈记录（Polsia 监控自愈：只修确定性异常，不涉现金/代发）</div>
+    <pre class="mod-result" id="watchHeals" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📮 邮件外发记录</div>
+    <pre class="mod-result" id="watchMailLog" hidden></pre>
+  </div>
+</section>
+
+<section class="tab-pane" id="tab-kpi" hidden>
+  <div class="pane-head">
+    <div class="pane-title">📈 半年千万 KPI <span class="tag">¥10,000,000 / 180 天 · 入账支付宝 · 自动计提 5% 推广费</span></div>
+    <div class="toolbar"><button class="btn ghost" id="kpiRefresh">刷新</button></div>
+  </div>
+<div class="panel">
+    <div class="panel-title">🎯 进度</div>
+    <div class="row" style="gap:14px;flex-wrap:wrap" id="kpiBox"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🚀 赚钱目标无人驾驶（暗线 24h：查询进展 → 优化目标 → 逼近目标）
+      <button class="btn small" style="margin-left:auto" onclick="window.__goalReport && window.__goalReport()">📄 复盘报告</button>
+    </div>
+    <pre class="mod-result" id="goalPilotBox">加载中…</pre>
+    <pre class="mod-result" id="goalReportBox" style="display:none">点「📄 复盘报告」拉取最近一次复盘。</pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">💰 营收入账（记支付宝）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="moneyAmt" placeholder="金额 ¥" style="max-width:140px">
+      <input class="ipt" id="moneySource" placeholder="来源（订阅/单次/私教…）" style="flex:1;min-width:160px">
+      <select class="ipt" id="moneyMethod" style="max-width:140px">
+        <option value="支付宝">支付宝收款</option>
+        <option value="微信">微信收款</option>
+        <option value="银行">银行转账</option>
+      </select>
+      <button class="btn primary" id="moneyCredit">记一笔入账</button>
+    </div>
+    <pre class="mod-result" id="moneyRevenues" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📣 5% 推广费台账（每赚 1 元自动计提 5 分，可自主投放）</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="promoAmt" placeholder="投放金额 ¥" style="max-width:140px">
+      <input class="ipt" id="promoNote" placeholder="投放去向备注" style="flex:1;min-width:180px">
+      <button class="btn ghost" id="promoSpend">投放支出</button>
+    </div>
+    <pre class="mod-result" id="moneyPromos" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🎯 获客线索（自主运营铺市场登记）</div>
+    <pre class="mod-result" id="moneyLeads" hidden></pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">☀️ CEO 晨报（每日便条 · 借鉴 Polsia：AI CEO 每日审计账户给创始人留便条）
+      <button class="btn small" style="margin-left:auto" onclick="window.__brief && window.__brief()">生成今日便条</button>
+    </div>
+    <pre class="mod-result" id="ceoBriefBox">加载中…</pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧠 跨公司学习·经验库（Polsia 群体进化：成败经验互哺，全真实事件沉淀）</div>
+    <pre class="mod-result" id="lessonsBox">加载中…</pre>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📊 广告投放 ROI（渠道级归因，纯真实台账 · 高 ROI 渠道加大、低 ROI 降权）</div>
+    <pre class="mod-result" id="roiBox">加载中…</pre>
+  </div>
+</section>
+
+<!-- ===== 漏斗看板 ===== -->
+<section class="tab-pane" id="tab-funnel" hidden>
+  <div class="pane-head">
+    <div class="pane-title">📊 漏斗看板 <span class="tag green">全链路六阶段 · 每日快照</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="funnelRefresh">刷新</button>
+      <select class="ipt" id="funnelDays" style="max-width:130px">
+        <option value="7">最近 7 天</option>
+        <option value="14" selected>最近 14 天</option>
+        <option value="30">最近 30 天</option>
+        <option value="90">最近 90 天</option>
+      </select>
+    </div>
+  </div>
+  <div class="stat-row" id="funnelSummary"></div>
+  <div class="panel">
+    <div class="panel-title">📈 漏斗趋势图</div>
+    <div id="funnelChart" style="height:320px"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">📋 阶段列表</div>
+    <div class="funnel-stages" id="funnelStages"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🔍 下钻详情</div>
+    <select class="ipt" id="funnelDrillStage" style="max-width:200px">
+      <option value="">选择阶段查看详情</option>
+    </select>
+    <div id="funnelDrill" class="sub">选择上方阶段查看明细</div>
+  </div>
+  <div class="panel" id="crmPanel">
+    <div class="panel-title">🧭 商机推进（CRM-lite） <span class="tag">线索 → 商机 → 成交 → 复购</span></div>
+    <div class="sub" id="crmNote"></div>
+    <div class="stat-row" id="crmSummary"></div>
+    <div id="crmOpps"></div>
+  </div>
+</section>
+
+<!-- 能力全景：把「有什么 / 用户能用哪些 / 差在哪」摆到台面上 -->
+<section class="tab-pane" id="tab-capmap" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🧭 能力全景 <span class="tag">自动盘点 · 查缺补漏</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="capmapRefresh">刷新</button>
+      <select class="ipt" id="capmapTopic" style="max-width:180px">
+        <option value="all" selected>全部主题</option>
+      </select>
+    </div>
+  </div>
+  <div class="stat-row" id="capmapSummary"></div>
+  <div class="panel">
+    <div class="panel-title">⚠️ 空转机制（建好了但从未运行）</div>
+    <div id="capmapIdle" class="sub">加载中…</div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🕳️ 用户够不到的能力（做出来了但没有入口）</div>
+    <div class="sub" data-i18n-skip="1" style="margin-bottom:10px">
+      这些能力在后端已实现并有 HTTP 端点，但前端没有任何地方能触发它们。
+      它们不会自己消失——只能被人主动想起来才会补，所以这份清单要定期看。
+    </div>
+    <div id="capmapGaps" class="sub">加载中…</div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">✅ 前端入口</div>
+    <div id="capmapTabs" class="sub">加载中…</div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">🧭 复用选型 SOP（先检索复用，再造）</div>
+    <div class="sub" data-i18n-skip="1" style="margin-bottom:10px">
+      造新轮子前必走的五步。<b>Step 0 是门禁</b>：自有能力已覆盖就停下别写。
+      协议是 Step 1 的硬闸：GPL/AGPL 有传染性（AGPL 连「只提供 SaaS 不分发」都触发），
+      MIT/Apache 宽松但要看 NOTICE 与专利条款；协议 unknown 一律不许往下走。
+      Star 多、更新勤都不等于能用。
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <input class="ipt" id="sopNeed" placeholder="要做的事，如：任务队列 / 退款记账" style="flex:1;min-width:220px">
+      <button class="btn" id="sopGate">Step 0 门禁：先别写</button>
+    </div>
+    <div id="sopGateResult" class="sub" style="margin-bottom:12px"></div>
+    <div class="sub" style="margin-bottom:6px"><b>候选仓库</b>（JSON 数组；SOP 不自己搜，保证可离线复算、不产生幻觉）</div>
+    <textarea class="ipt" id="sopCandidates" rows="6" style="width:100%;font-family:ui-monospace,monospace;font-size:11px" placeholder='[{"repo":"user/lib","facts":{"license":"MIT","stars":5200,"forks":340,"pushedAt":"ISO或毫秒","archived":false,"openIssues":12,"createdAt":"...","lang":"JavaScript","fileCount":90,"hasPackageJson":true,"hasDockerfile":true,"hasTests":true,"hasCI":true,"runtime":"node","depsCount":5,"reachable":true,"exists":true,"probeStatus":200}}]'></textarea>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn primary" id="sopRunFull">跑完整五步</button>
+      <input class="ipt" id="sopRate" type="number" placeholder="时薪(元/小时，可空)" style="max-width:170px">
+    </div>
+    <div id="sopRunResult" style="margin-top:12px"></div>
+  </div>
+</section>
+
+<!-- 合规中心：PCI-DSS / GDPR / CAN-SPAM / 税务KYC 一屏看齐 -->
+<section class="tab-pane" id="tab-compliance" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🛡️ 合规中心 <span class="tag">自查 · 非法律意见</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="complianceRefresh">刷新</button>
+      <select class="ipt" id="complianceCtx" style="max-width:200px">
+        <option value="payment">支付场景</option>
+        <option value="outreach">外发触达</option>
+        <option value="lead">线索/隐私</option>
+        <option value="partner">合伙人分润</option>
+        <option value="global">全部</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">📋 落地自审（未落地项如实列出）</div>
+    <div id="complianceAudit" class="sub">加载中…</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">📜 场景合规声明</div>
+    <div class="sub" style="margin-bottom:10px">
+      按适用场景过滤。显示的是"我们对外声明了什么"，配合上方自审才知道哪些还差。
+    </div>
+    <div id="complianceClauses"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🧹 隐私权操作（GDPR Art.15/17）</div>
+    <div class="sub" style="margin-bottom:10px">
+      被遗忘权：匿名化某线索的个人数据（姓名/联系方式/对话内容），<b>不删除已成交的财务凭证</b>（账实分离）。全程留审计。
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input class="ipt" id="privacyLeadId" placeholder="线索 ID" style="max-width:220px">
+      <label class="sub" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="privacyDeep"> 深度模式（全字段扫描，较慢）
+      </label>
+      <button class="btn" id="privacyErase">执行被遗忘</button>
+      <button class="btn ghost" id="privacyExport">导出该线索数据</button>
+    </div>
+    <pre id="privacyResult" class="code" style="max-height:220px;margin-top:10px;display:none"></pre>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">⚠️ 诚实边界</div>
+    <div id="complianceHonesty" class="sub">met 表示有可自动判据支撑的实现，不构成法律意见；unmet 表示尚无落地机制，需要人介入。</div>
+  </div>
+</section>
+
+<!-- ===== 创业验证所 ===== -->
+<!-- 从 idea 到 validated plan：Pre-Flight 三查 → 8 阶段流水线 → 两道闸 → 7 维 Scorecard + Kill Criteria -->
+<!-- 借鉴 ferdinandobons/startup-skill (MIT) 方法论：Radical Honesty + 数据标签 + 验证代理 -->
+<section class="tab-pane" id="tab-validator" hidden>
+  <div class="pane-head">
+    <div class="pane-title">🏗️ 创业验证所 <span class="tag violet">Pre-Flight → 8 阶段 → Scorecard</span></div>
+    <div class="toolbar">
+      <button class="btn ghost" id="valListBtn">📋 项目列表</button>
+    </div>
+  </div>
+
+  <!-- 启动/列表视图 -->
+  <div class="panel" id="valStartView">
+    <div class="panel-title">🚀 新建验证项目</div>
+    <div class="sub" style="margin-bottom:10px">输入创业想法，系统先做 Pre-Flight 三查（主导方案/先例失败/监管红线），再进入 8 阶段验证流水线。</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <input class="ipt" id="valIdea" style="flex:1;min-width:220px" placeholder="创业想法（例：面向中小商家的 AI 自动获客工具）">
+      <input class="ipt" id="valName" style="max-width:160px" placeholder="项目名称（可选）">
+      <button class="btn primary" id="valGo">🚀 启动 Pre-Flight</button>
+    </div>
+    <div class="sub" id="valStartNote"></div>
+    <hr style="margin:12px 0">
+    <div class="panel-title">📋 进行中项目</div>
+    <div id="valProjectList" class="row" style="flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- 详情视图（单项目） -->
+  <div class="panel" id="valDetailView" hidden>
+    <div class="pane-head">
+      <div class="pane-title">
+        <span id="valProjName" class="sub"></span>
+        <span id="valPhaseBadge" class="tag"></span>
+      </div>
+      <div class="toolbar">
+        <button class="btn ghost" id="valBackBtn">⬅ 返回列表</button>
+      </div>
+    </div>
+    <div id="valDetailBody"></div>
+  </div>
+</section>
+
+<div class="ask-modal" id="wallOverlay" hidden>
+  <div class="ask-card wall-card">
+    <div class="card-t" id="wallTitle">🔒 免费次数已用完</div>
+    <div class="sub" id="wallMsg" style="margin:8px 0">订阅后解锁全部功能。支持微信 / 支付宝，入账一律进支付宝。</div>
+    <div id="wallPlans"></div>
+    <!-- 免费试用 2 天（获客件）：文本由 biz.js 按当前语言整句写入（PL 词典），HTML 里不放文案，
+         避免 i18n 静态审计把运行时才定的多语按钮当成漏翻。 -->
+    <div class="row" id="wallTrialRow" style="justify-content:center;margin-top:4px" hidden>
+      <button class="btn primary" id="wallTrialBtn"></button>
+    </div>
+    <!-- 【2026-10-21 额度口径透明】免费额度与各档日限（由 /v1/subs/quota 渲染，权威不漂移） -->
+    <div id="wallQuota"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" id="wallLater">再逛逛</button>
+    </div>
+    <div class="sub" id="wallHint" style="margin-top:8px">提示：扫码付款成功即自动开通订阅（激活由网关回调与查单自动确认，无需人工核账）。</div>
+  </div>
+</div>
+
+<!-- 付款弹窗（真实收款） -->
+<div class="ask-modal" id="payOverlay" hidden>
+  <div class="ask-card">
+    <div class="card-t">💳 扫码付款 · 自动开通</div>
+    <div class="sub" id="payPlan" style="margin:8px 0"></div>
+    <div class="sub">订单号：<b id="payOrderId"></b></div>
+    <div class="sub">收款账号：<b id="payAccount"></b></div>
+    <div id="payQr"></div>
+    <div class="sub" id="payHint" style="margin:8px 0;color:var(--danger)"></div>
+    <div class="sub" style="margin:10px 0 0">
+      <label class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <input class="ipt" id="payEmail" type="email" inputmode="email" autocomplete="email"
+               placeholder="可选：接收付款凭证与续费提醒的邮箱" style="flex:1;min-width:220px">
+        <span id="payEmailHint" style="color:var(--muted)"></span>
+      </label>
+      <!-- 【2026-10-21】收据与跨设备恢复都靠这个邮箱：不填 = 没有付款凭证、换设备找不回订阅 -->
+      <div class="sub" style="margin-top:6px;color:var(--muted)">填了邮箱：付款后自动收到<b>付款凭证</b>，换电脑/换浏览器也能用邮箱验证码<b>找回订阅</b>（不填则两样都没有）。</div>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" id="payLater">稍后付款</button>
+      <button class="btn primary" id="payDone">我已付款</button>
+    </div>
+    <div class="sub" style="margin-top:8px;color:var(--muted)">
+      <label class="row" style="gap:8px;flex-wrap:wrap;align-items:center;cursor:pointer">
+        <input type="file" id="payProofFile" accept="image/*" style="max-width:220px">
+        <span id="payProofHint">可选：上传转账成功截图（上传后系统可立即核账，无需等待）</span>
+      </label>
+    </div>
+    <div class="sub" id="payPaid" style="margin-top:8px" hidden>已提交，等待运营确认到账后自动激活（约 5 秒检测一次）。关闭本页不影响，回到订阅面板会刷新状态。</div>
+  </div>
+</div>
+
+<!-- 退款申请（客户自助：申请 → 运营实际出款 → 运营确认；未确认出款前绝不显示「已退款」） -->
+<div class="ask-modal" id="refundOverlay" hidden>
+  <div class="ask-card">
+    <div class="card-t">↩️ 申请退款</div>
+    <div class="sub" id="refundInfo" style="margin:8px 0"></div>
+    <div class="sub" style="margin:10px 0 0">
+      <label class="sub" for="refundReason">退款原因（选填，300 字以内）</label>
+      <textarea class="ipt" id="refundReason" rows="3" maxlength="300"
+                placeholder="退款原因（选填，300 字以内）"
+                style="width:100%;margin-top:6px;min-height:72px;resize:vertical"></textarea>
+    </div>
+    <div class="sub" id="refundHint" style="margin:8px 0;color:var(--muted)"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn ghost" id="refundCancel">取消</button>
+      <button class="btn primary" id="refundSubmit">提交退款申请</button>
+    </div>
+  </div>
+</div>
+
+  <!-- ===== gtm: 获客市场 ===== -->
+  <section class="tab-pane" id="tab-gtm" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="gtm.title">获客市场 · ICP 与触达序列</div>
+      <div class="sub" data-i18n="gtm.sub">定义理想客户画像（ICP），配置多渠道触达序列，实时看板追踪漏斗转化。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="gtmRefresh" data-i18n="gtm.refresh">刷新数据</button>
+        <button class="btn" id="gtmDiag" data-i18n="gtm.diagnose">诚实体检</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="gtm.icps">ICP 画像库</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="gtmIcpTbl">
+          <thead><tr><th>代号</th><th>名称</th><th>行业</th><th>规模</th><th>痛点</th><th>预算带</th><th>决策链</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.sequences">触达序列</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="gtmSeqTbl">
+          <thead><tr><th>ID</th><th>ICP</th><th>渠道</th><th>步骤</th><th>模板摘要</th><th>间隔</th><th>状态</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.landing">落地页文案预览</h4>
+      <div class="row" style="gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <select id="gtmLandingIcp" class="inp" style="min-width:180px"></select>
+        <button class="btn" id="gtmGenLanding" data-i18n="gtm.genLanding">生成文案</button>
+      </div>
+      <pre id="gtmLandingOut" class="code" style="max-height:260px;display:none"></pre>
+      <div id="gtmLandingEdit" hidden></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="gtm.funnelDetail">漏斗下钻详情</h4>
+      <div id="gtmFunnelDetail" class="sub">点击上方漏斗图的某个阶段条查看该阶段线索</div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="card-t" data-i18n="gtm.funnelTitle">获客漏斗看板</div>
+      <div id="gtmFunnelSvg" style="height:220px"></div>
+      <div class="sub" id="gtmFunnelMeta" style="margin-top:6px"></div>
+    </div>
+  </section>
+
+  <!-- ===== partner: 合伙人分销 ===== -->
+  <section class="tab-pane" id="tab-partner" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="partner.title">合伙人分销 · 招募与结算</div>
+      <div class="sub" data-i18n="partner.sub">管理合伙人招募、交付验收、分成结算全流程。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="partnerRefresh" data-i18n="partner.refresh">刷新数据</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="partner.enroll">招募申请</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerEnrollTbl">
+          <thead><tr><th>ID</th><th>姓名</th><th>联系方式</th><th>渠道</th><th>状态</th><th>申请时间</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.deliver">交付验收</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerDeliverTbl">
+          <thead><tr><th>ID</th><th>合伙人</th><th>客户</th><th>金额</th><th>状态</th><th>验收时间</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.deliverDetail">交付明细（点击上表行查看）</h4>
+      <div id="partnerDeliverDetail" class="sub">点击上表某行查看交付明细：服务内容、交付物、工时、成交额、分润</div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="partner.settle">分成结算</h4>
+      <div class="scrollable" style="max-height:240px">
+        <table class="tbl" id="partnerSettleTbl">
+          <thead><tr><th>ID</th><th>合伙人</th><th>应结算</th><th>已结算</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== cashier: 收银台 ===== -->
+  <section class="tab-pane" id="tab-cashier" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="cashier.title">收银台 · 统一收付款中心</div>
+      <div class="sub" data-i18n="cashier.sub">聚合所有支付通道、订单查询、提现结算、资金看板、推广费预算、线索营收、核销记录。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="cashierRefresh" data-i18n="cashier.refresh">刷新全量</button>
+        <button class="btn" id="cashierDiag" data-i18n="cashier.diag">通道自检</button>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="cashier.channels">支付通道状态</h4>
+      <div id="cashierChannels" class="row" style="flex-wrap:wrap;gap:8px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.kpi">资金看板</h4>
+      <div id="cashierKpi" class="row" style="flex-wrap:wrap;gap:12px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.promo">推广费预算池</h4>
+      <div id="cashierPromo" class="row" style="flex-wrap:wrap;gap:12px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.leads">线索营收记录</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="cashierLeadsTbl">
+          <thead><tr><th>ID</th><th>线索</th><th>金额</th><th>状态</th><th>来源</th><th>创建时间</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.payout">提现/结算管理</h4>
+      <div class="scrollable" style="max-height:260px">
+        <table class="tbl" id="cashierPayoutTbl">
+          <thead><tr><th>类型</th><th>对象</th><th>金额</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.writeoff">核销记录</h4>
+      <div class="scrollable" style="max-height:200px">
+        <table class="tbl" id="cashierWriteoffTbl">
+          <thead><tr><th>ID</th><th>订单</th><th>金额</th><th>类型</th><th>时间</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.payoutConfig">提现账户配置</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" id="payoutBank" class="inp" placeholder="银行名称" style="width:160px">
+        <input type="text" id="payoutAccount" class="inp" placeholder="账号" style="width:200px">
+        <input type="text" id="payoutName" class="inp" placeholder="户名" style="width:140px">
+        <input type="text" id="payoutBranch" class="inp" placeholder="支行" style="width:180px">
+        <button class="btn primary" id="payoutConfigSave" data-i18n="cashier.saveConfig">保存配置</button>
+      </div>
+      <pre id="payoutConfigResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.instruction">打款指令</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <select id="instructionType" class="inp" style="width:140px">
+          <option value="partner">合伙人分润</option>
+          <option value="supplier">供应商付款</option>
+          <option value="refund">退款</option>
+          <option value="other">其他</option>
+        </select>
+        <input type="text" id="instructionTarget" class="inp" placeholder="收款方ID/名称" style="width:180px">
+        <input type="number" id="instructionAmount" class="inp" placeholder="金额(分)" value="1000" style="width:120px">
+        <input type="text" id="instructionRemark" class="inp" placeholder="备注" style="width:200px">
+        <button class="btn primary" id="instructionCreate" data-i18n="cashier.createInstruction">创建指令</button>
+      </div>
+      <pre id="instructionResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.dunning">催款管理</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="text" id="dunningTarget" class="inp" placeholder="催款对象ID/名称" style="width:200px">
+        <input type="number" id="dunningAmount" class="inp" placeholder="金额(分)" value="0" style="width:120px">
+        <select id="dunningChannel" class="inp" style="width:140px">
+          <option value="wechat">企业微信</option>
+          <option value="sms">短信</option>
+          <option value="email">邮件</option>
+        </select>
+        <button class="btn" id="dunningSend" data-i18n="cashier.sendDunning">发送催款</button>
+      </div>
+      <pre id="dunningResult" class="code" style="max-height:120px;display:none"></pre>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="cashier.checkout">创建收款单（测试）</h4>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="number" id="checkoutAmt" class="inp" placeholder="金额(分)" value="100" style="width:120px">
+        <select id="checkoutChannel" class="inp" style="width:140px">
+          <option value="alipay">支付宝</option>
+          <option value="paypal">PayPal</option>
+          <option value="moltspay">MoltSpay</option>
+        </select>
+        <input type="text" id="checkoutSubject" class="inp" placeholder="商品名" value="测试商品" style="width:160px">
+        <button class="btn primary" id="checkoutCreate" data-i18n="cashier.createOrder">创建订单</button>
+      </div>
+      <pre id="checkoutResult" class="code" style="max-height:180px;display:none"></pre>
+    </div>
+  </section>
+
+  <!-- ===== outreach: 外发触达 ===== -->
+  <section class="tab-pane" id="tab-outreach" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="outreach.title">外发触达 · 线索触达记录与配额</div>
+      <div class="sub" data-i18n="outreach.sub">查看每日触达记录、配额使用、渠道效果、失败原因分析。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="outreachRefresh" data-i18n="outreach.refresh">刷新数据</button>
+        <select id="outreachChannel" class="inp" style="width:140px">
+          <option value="">全部渠道</option>
+          <option value="email">邮件</option>
+          <option value="wechat">企业微信</option>
+          <option value="sms">短信</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+        <input type="date" id="outreachDate" class="inp" style="width:140px">
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="outreach.quota">今日配额</h4>
+      <div id="outreachQuota" class="row" style="flex-wrap:wrap;gap:12px;margin-bottom:12px"></div>
+
+      <h4 data-i18n="outreach.records">触达记录</h4>
+      <div class="scrollable" style="max-height:400px">
+        <table class="tbl" id="outreachRecordsTbl">
+          <thead><tr><th>ID</th><th>线索</th><th>渠道</th><th>状态</th><th>内容摘要</th><th>配额占用</th><th>时间</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="outreach.stats">渠道效果统计</h4>
+      <div id="outreachStats" class="row" style="flex-wrap:wrap;gap:12px"></div>
+    </div>
+  </section>
+
+  <!-- ===== commercial-loop: 商业闭环 ===== -->
+  <section class="tab-pane" id="tab-commercial-loop" hidden>
+    <div class="card">
+      <div class="card-t">🔄 商业闭环</div>
+      <div class="sub">获客 → 沟通 → 成交 → 支付 → 物流 → 履约 → 售后 → 自我进化。每个阶段如实报告是否有真实数据在流转。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="clRefresh">刷新闭环</button>
+      </div>
+      <div id="clSummary" style="margin-top:12px"></div>
+      <div id="clStages" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px"></div>
+      <div id="clEvidence" style="margin-top:12px"></div>
+      <div id="clNext" style="margin-top:12px;padding:8px 12px;background:#1a2a3a;border-radius:6px;font-size:13px"></div>
+    </div>
+  </section>
+
+  <!-- ===== convert: 线索转化 ===== -->
+  <section class="tab-pane" id="tab-convert" hidden>
+    <div class="card">
+      <div class="card-t" data-i18n="convert.title">线索转化 · 成交与漏斗下钻</div>
+      <div class="sub" data-i18n="convert.sub">从线索到成交的完整漏斗，支持下钻到单条线索查看触达历史、跟进记录、成交详情。</div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="convertRefresh" data-i18n="convert.refresh">刷新漏斗</button>
+        <select id="convertStage" class="inp" style="width:160px">
+          <option value="">全部阶段</option>
+          <option value="new">新线索</option>
+          <option value="contacted">已触达</option>
+          <option value="qualified">合格线索</option>
+          <option value="proposal">报价中</option>
+          <option value="negotiation">谈判中</option>
+          <option value="won">已成交</option>
+          <option value="lost">已流失</option>
+        </select>
+      </div>
+      <div class="divider" style="margin:12px 0"></div>
+
+      <h4 data-i18n="convert.funnel">转化漏斗</h4>
+      <div id="convertFunnelSvg" style="height:240px"></div>
+      <div class="sub" id="convertFunnelMeta" style="margin-top:6px"></div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="convert.leads">线索列表（可下钻）</h4>
+      <div class="scrollable" style="max-height:400px">
+        <table class="tbl" id="convertLeadsTbl">
+          <thead><tr><th>ID</th><th>名称</th><th>阶段</th><th>金额</th><th>渠道</th><th>最后跟进</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="divider" style="margin:16px 0 8px"></div>
+      <h4 data-i18n="convert.detail">线索详情（点击行查看）</h4>
+      <div id="convertDetail" class="sub">点击上表某行查看触达历史、跟进记录、成交详情</div>
+    </div>
+  </section>
+
+  <div class="ask-modal" id="askOverlay" hidden>
+  <div class="ask-card">
+    <div class="card-t" id="askTitle">技能调用</div>
+    <textarea id="askArgs" rows="3" placeholder='参数（如：q=北京 或 text=这段内容值得评估…）'></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px">
+      <button class="btn ghost" id="askCancel">取消</button>
+      <button class="btn primary" id="askGo">执行</button>
+    </div>
+    <pre id="askResult" class="ask-result" hidden></pre>
+  </div>
+</div>
+
+  </main>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<div class="confirm" id="overlay" hidden><div class="confirm-card" id="confirmCard"></div></div>
+
+<!-- 左栏自适应（光标靠拢显现 / 汉堡锁定 / 收起把手）由 ui.js 提供。
+     【2026-09 修复】此前 ui.js 根本没有被引用 —— 文件在磁盘上，但页面从不加载它，
+     导致 #navBurger / #navPeek 的事件全部没绑定，左栏永远停在 translateX(-106%)，
+     表现为「左边栏目打不开」，且控制台无任何报错（IIFE 里 getElementById 拿不到就静默 return）。
+     放在 app.js 之前：ui.js 负责布局层的开合状态，app.js 负责 tab 切换。 -->
+<!-- 构建戳：改前端后改此处版本号，浏览器强制取新代码（服务端 HTML 已 no-store，双保险） -->
+<script>window.BD_BUILD = '20261013e';</script>
+<script src="i18n-console.js?v=20261017b"></script>
+<script src="i18n.js?v=20261017b"></script>
+<script src="ui.js?v=20261013e"></script>
+<script src="vendor/chart.umd.min.js?v=20261013e"></script>
+<script src="app.js?v=20261017b"></script>
+<script src="biz.js?v=20261023d"></script>
+<script src="convert.js?v=20261013e"></script>
+<script src="capture.js?v=20261013e"></script>
+<script src="zodiac.js?v=20261013e"></script>
+<script src="geo.js?v=20261013e"></script>
+<!-- PWA 装配：注册离线外壳。仅在 http(s) 下生效（file:// 打开会自动跳过）。 -->
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () { /* 离线能力不可用不影响在线使用 */ });
+  });
+  // 供"系统设置"页展示安装指引：捕获可安装事件
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    window.__bdInstallPrompt = e;
+    document.dispatchEvent(new CustomEvent('bd-installable'));
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "appId": "com.bingdashan.agent",
+  "appName": "丙大山AI",
+  "webDir": "web",
+  "loggingBehavior": "debug",
+  "server": {
+    "url": "https://bingdashanai.highkingflower.com",
+    "cleartext": false,
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "allowNavigation": [
+      "bingdashanai.highkingflower.com",
+      "*.highkingflower.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false,
+    "scrollEnabled": true
+  }
+}

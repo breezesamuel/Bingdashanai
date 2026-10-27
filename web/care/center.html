@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1020">
+<title>丙大山陪护 · 监控中心</title>
+<link rel="manifest" href="/care/manifest.webmanifest">
+<style>
+  :root { --bg:#0b1020; --panel:#151d36; --line:#2b3763; --fg:#eef2ff; --dim:#a8b3d6; --red:#ff6b6b; --green:#3ddc97; --amber:#ffc857; --blue:#6ea8fe; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; padding:16px 16px 60px; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:12px; margin-bottom:14px; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:14px; }
+  .bar input { flex:1 1 260px; font:inherit; background:#0f1730; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .btn { font:inherit; font-size:13px; padding:7px 13px; border-radius:8px; border:1px solid var(--line); background:#1d2a4f; color:var(--fg); cursor:pointer; }
+  .btn.primary { background:#1d4ed8; border-color:#2f6bff; } .btn.green { background:#136b4a; border-color:#1f8f63; } .btn.bad { background:#6b2020; border-color:#9a3030; }
+  .btn:disabled { opacity:.5; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:10px; margin-bottom:14px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 14px; }
+  .kpi .n { font-size:26px; font-weight:700; line-height:1.2; }
+  .kpi .l { color:var(--dim); font-size:12px; margin-top:2px; }
+  .kpi.bad .n { color:var(--red); } .kpi.warn .n { color:var(--amber); } .kpi.ok .n { color:var(--green); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .card h2 { font-size:14px; margin:0 0 10px; color:var(--dim); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; font-size:12px; }
+  tr:last-child td { border-bottom:0; }
+  .sev { font-weight:700; font-size:12px; }
+  .sev.P0 { color:var(--red); } .sev.P1 { color:var(--amber); } .sev.P2 { color:var(--blue); }
+  .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .tag.ok { color:var(--green); border-color:#1f6f52; } .tag.bad { color:var(--red); border-color:#7a2b2b; } .tag.warn { color:var(--amber); border-color:#7a5c1d; }
+  .empty { color:var(--dim); font-size:13px; }
+  .checks { display:flex; flex-direction:column; gap:8px; }
+  .check { border-left:4px solid var(--line); background:#111a31; border-radius:8px; padding:9px 12px; }
+  .check.high { border-left-color:var(--red); } .check.medium { border-left-color:var(--amber); } .check.low { border-left-color:var(--blue); }
+  .check .t { font-weight:600; }
+  .check .a { color:var(--dim); font-size:12px; margin-top:3px; }
+  .toast { position:fixed; right:16px; bottom:16px; padding:12px 16px; border-radius:10px; display:none; z-index:9; font-size:13px; }
+  .toast.show { display:block; } .toast.ok { background:#123a2a; border:1px solid #1f6f52; } .toast.bad { background:#3a1b1b; border:1px solid #7a2b2b; }
+  .link { color:var(--blue); text-decoration:none; }
+</style>
+</head>
+<body>
+<h1>陪护 · 监控中心</h1>
+<div class="sub">谁在线、谁出事、多久没接单、责任链断在哪里。数据与子女端/老人端同源（core/care.js）。</div>
+
+<div class="bar">
+  <input id="tok" type="password" placeholder="管理令牌（与运营台同一把，存在本机）">
+  <button class="btn primary" id="save">保存并刷新</button>
+  <button class="btn" id="refresh">刷新</button>
+  <span class="empty" id="stamp"></span>
+</div>
+
+<div id="kpis" class="kpis"></div>
+<div id="alerts" class="card"><div class="empty">加载中…</div></div>
+<div id="families" class="card"><div class="empty">加载中…</div></div>
+<div id="loop" class="card"><div class="empty">加载中…</div></div>
+<div id="events" class="card"><div class="empty">加载中…</div></div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s) { return document.querySelector(s); };
+  function esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function tok() { try { return (localStorage.getItem('bd_adminToken') || '').trim(); } catch (e) { return ''; } }
+  function toast(m, c) { var el = $('#toast'); el.textContent = m; el.className = 'toast show ' + (c || 'ok'); clearTimeout(toast._t); toast._t = setTimeout(function () { el.className = 'toast'; }, 3500); }
+  function api(p, o) {
+    var opt = Object.assign({ headers: { 'Content-Type': 'application/json', 'x-admin-token': tok() } }, o || {});
+    return fetch(p, opt).then(function (r) { return r.json(); });
+  }
+  function fmt(ts) { try { return new Date(Number(ts)).toLocaleString(); } catch (e) { return ''; } }
+
+  function kpi(n, l, cls) { return '<div class="kpi ' + (cls || '') + '"><div class="n">' + esc(n) + '</div><div class="l">' + esc(l) + '</div></div>'; }
+
+  function renderCenter(c) {
+    var b = c.billing || {};
+  var o = c.orders || { pending: 0, fulfilled: 0, mrr: 0 };
+  var n = c.notifies || {};
+    $('#kpis').innerHTML =
+      kpi(c.families, '家庭') + kpi(c.elders, '老人') + kpi(c.guardians, '子女/家属') +
+      kpi(c.unbound, '未绑定子女', c.unbound ? 'bad' : 'ok') +
+      kpi(c.devices.online + '/' + c.devices.total, '设备在线', c.devices.offline ? 'warn' : 'ok') +
+      kpi(c.alerts.p0, 'P0 未闭环', c.alerts.p0 ? 'bad' : 'ok') +
+      kpi(c.alerts.open, '全部未闭环', c.alerts.open ? 'warn' : 'ok') +
+      kpi(c.alerts.avgAckMin == null ? '—' : c.alerts.avgAckMin + '分', '平均接单', c.alerts.avgAckMin == null ? '' : (c.alerts.avgAckMin <= 5 ? 'ok' : 'warn')) +
+      kpi(c.alerts.slaPct == null ? '—' : c.alerts.slaPct + '%', 'SLA 达标（接单）', c.alerts.slaPct == null ? '' : (c.alerts.slaPct >= 90 ? 'ok' : 'warn')) +
+      kpi(c.tasks.dueToday, '今日待做任务', c.tasks.dueToday ? 'warn' : 'ok') +
+      kpi(c.tasks.missed7d, '近 7 天漏做', c.tasks.missed7d ? 'warn' : 'ok') +
+      kpi(c.docs, '健康资料') +
+      kpi(b.configured ? ('¥' + b.price) : '未定价', '陪护收费', b.configured ? 'ok' : 'bad') +
+      kpi(b.seedFamilies != null ? (b.seedFamilies + '/' + b.seedLimit) : '—', '种子名额', b.seedFamilies >= b.seedLimit ? 'warn' : 'ok') +
+      kpi(o.pending, '待付订阅单', o.pending ? 'warn' : 'ok') +
+      kpi(o.fulfilled, '已开通', o.fulfilled ? 'ok' : '') +
+      kpi('¥' + o.mrr, 'MRR（按月单）') +
+      kpi(n.configured ? '已配置' : '未配置', '短信通道', n.configured ? 'ok' : 'warn') +
+      kpi(n.smsToday + '/' + n.dailyCap, '今日短信/上限', n.smsToday >= n.dailyCap ? 'warn' : 'ok') +
+      kpi((n.pending || 0) + '/' + (n.failed || 0), '通知待发/失败', (n.pending || n.failed) ? 'warn' : 'ok');
+
+    var items = c.alertItems || [];
+    $('#alerts').innerHTML = '<h2>告警队列（按严重度/时间）</h2>' + (items.length
+      ? '<table><thead><tr><th>级别</th><th>老人</th><th>事件</th><th>状态</th><th>已过</th><th>升级至</th><th>操作</th></tr></thead><tbody>'
+        + items.map(function (a) {
+          var ops = '';
+          if (a.status === 'open') ops += '<button class="btn primary" data-ack="' + esc(a.id) + '">接单</button> ';
+          ops += '<button class="btn green" data-res="' + esc(a.id) + '">闭环</button>';
+          return '<tr><td><span class="sev ' + esc(a.severity) + '">' + esc(a.severity) + '</span></td><td>' + esc(a.elder)
+            + '</td><td>' + esc(a.label) + '<div class="empty">' + esc(a.message) + '</div></td><td>' + esc(a.status)
+            + (a.overdue ? ' <span class="tag bad">超时</span>' : '') + '</td><td>' + esc(a.ageMin) + ' 分</td><td class="empty">'
+            + esc(a.escalatedTo || '—') + '</td><td>' + ops + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<div class="empty">没有未闭环告警。P0 的 SLA 是 5 分钟。</div>');
+
+    var items2 = c.items || [];
+    $('#families').innerHTML = '<h2>家庭台账</h2>' + (items2.length
+      ? '<table><thead><tr><th>老人</th><th>子女</th><th>档案</th><th>设备</th><th>未闭环</th><th>收费</th><th>邀请码</th></tr></thead><tbody>'
+        + items2.map(function (f) {
+          return '<tr><td>' + esc(f.elderName) + '</td><td>' + esc(f.guardians) + '</td><td>' + (f.profileComplete ? '<span class="tag ok">完整</span>' : '<span class="tag warn">待补</span>')
+            + '</td><td>' + esc(f.devicesOnline) + '/' + esc(f.devices) + '</td><td>' + (f.openAlerts ? '<span class="tag bad">' + esc(f.openAlerts) + '</span>' : '0')
+            + '</td><td>' + (b.configured ? '<span class="tag ok">已定价</span>' : '<span class="tag bad">未定价</span>') + '</td><td class="empty">' + esc(f.inviteCode) + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<div class="empty">还没有家庭建档。</div>');
+
+    $('#events').innerHTML = '<h2>最近陪护事件（审计）</h2>' + ((c.recent || []).length
+      ? '<table><thead><tr><th>时间</th><th>动作</th><th>对象</th></tr></thead><tbody>'
+        + c.recent.map(function (e) { return '<tr><td class="empty">' + esc(fmt(e.at || e.createdAt)) + '</td><td>' + esc(e.action) + '</td><td class="empty">' + esc(e.target || '') + '</td></tr>'; }).join('')
+        + '</tbody></table>' : '<div class="empty">暂无事件。</div>');
+  }
+
+  function renderLoop(l) {
+    var checks = l.checks || [];
+    // 数据保护状态（2026-10-24）：加密是否可用、存量是否还有明文，迁移一键可点
+    var pe = (l.privacy && l.privacy.profileEncryption) || null;
+    var peLine = pe
+      ? '<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+        + '<span class="tag ' + (pe.available ? 'ok' : 'bad') + '">健康数据加密 ' + (pe.available ? '已启用' : '不可用') + '</span>'
+        + '<span class="tag ' + (pe.legacyPlaintext ? 'bad' : 'ok') + '">存量明文 ' + (pe.legacyPlaintext || 0) + ' 份</span>'
+        + '<span class="empty">' + esc(pe.algo || '') + ' · ' + esc(pe.source || '') + '</span>'
+        + (pe.legacyPlaintext ? '<button class="btn bad" id="migrateBtn">加密迁移存量（PIPL）</button>' : '<button class="btn" id="migrateBtn">迁移自检（幂等）</button>')
+        + '</div>'
+      : '';
+    $('#loop').innerHTML = '<h2>闭环体检</h2>'
+      + '<div style="margin-bottom:10px" class="' + (l.healthy ? 'tag ok' : 'tag bad') + '">' + (l.healthy ? '无断点' : '有断点') + '</div>'
+      + '<div class="empty" style="margin-bottom:10px">' + esc(l.nextAction || '') + '</div>'
+      + '<div class="checks">' + checks.map(function (c) {
+        return '<div class="check ' + esc(c.severity) + '"><div class="t">' + esc(c.title) + ' · ' + esc(c.count) + ' 条</div>'
+          + '<div class="a">' + esc(c.action) + '</div></div>';
+      }).join('') + '</div>'
+      + peLine
+      + '<div class="empty" style="margin-top:10px">' + esc((l.honesty && l.honesty.medical) || '') + '</div>'
+      + '<div class="empty">' + esc((l.honesty && l.honesty.privacy) || '') + '</div>';
+    var mb = $('#migrateBtn');
+    if (mb) mb.onclick = function () {
+      mb.disabled = true;
+      api('/v1/care/profile/migrate', { method: 'POST' })
+        .then(function (r) {
+          if (!r.ok) { mb.disabled = false; return toast(r.error || '迁移失败', 'bad'); }
+          var p = r.profiles || {};
+          toast('迁移完成：档案 ' + (p.migrated || 0) + ' 转密文 / ' + (p.already || 0) + ' 已是密文'
+            + '，资料文件 ' + ((r.docs && r.docs.encrypted) || 0) + ' 转密文', 'ok');
+          load();
+        })
+        .catch(function (e) { mb.disabled = false; toast(String(e), 'bad'); });
+    };
+  }
+
+  function load() {
+    if (!tok()) { $('#kpis').innerHTML = '<div class="kpi"><div class="n">—</div><div class="l">请先填管理令牌</div></div>'; return; }
+    api('/v1/care/center').then(function (c) {
+      if (!c.ok) { toast(c.error || '读取失败', 'bad'); return; }
+      renderCenter(c);
+      $('#stamp').textContent = '更新于 ' + new Date(c.generatedAt).toLocaleTimeString();
+    }).catch(function (e) { toast(String(e), 'bad'); });
+    api('/v1/care/loop').then(function (l) { if (l.ok) renderLoop(l); });
+  }
+
+  $('#save').onclick = function () {
+    try { localStorage.setItem('bd_adminToken', $('#tok').value.trim()); } catch (e) {}
+    load();
+  };
+  $('#refresh').onclick = load;
+  $('#tok').value = tok();
+
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    if (!el || el.tagName !== 'BUTTON') return;
+    var ack = el.getAttribute('data-ack');
+    var res = el.getAttribute('data-res');
+    if (!ack && !res) return;
+    el.disabled = true;
+    if (ack) {
+      api('/v1/care/alert/ack', { method: 'POST', body: JSON.stringify({ id: ack }) })
+        .then(function (r) { if (!r.ok) { el.disabled = false; return toast(r.error || '失败', 'bad'); } toast('已接单', 'ok'); load(); })
+        .catch(function (e) { el.disabled = false; toast(String(e), 'bad'); });
+    } else {
+      var note = prompt('处理结果（必填，家属可见）', '');
+      if (!note) { el.disabled = false; return; }
+      api('/v1/care/alert/resolve', { method: 'POST', body: JSON.stringify({ id: res, note: note }) })
+        .then(function (r) { if (!r.ok) { el.disabled = false; return toast(r.error || '失败', 'bad'); } toast('已闭环', 'ok'); load(); })
+        .catch(function (e) { el.disabled = false; toast(String(e), 'bad'); });
+    }
+  });
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/care/sw.js').catch(function () {});
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

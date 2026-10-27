@@ -1,0 +1,71 @@
+name: build-desktop
+
+# 多平台桌面安装包。Windows 可在本机 `npm run dist:win` 直接构建；
+# macOS 的 dmg/zip 与代码签名**只能在 macOS 上**构建，iOS 更是必须有 Xcode，
+# 所以这里用三家 runner 各建各的：这是把"Mac/iOS 端我没法在这台 Windows 上产出"
+# 变成"一条 push 就能拿到产出的正式安装包"的唯一诚实做法。
+#
+# 产物（Actions > 对应 run > Artifacts）：
+#   BingDashanAI-<ver>-win-x64.exe         NSIS 安装包
+#   BingDashanAI-<ver>-mac-x64.dmg / arm64.dmg
+#   BingDashanAI-<ver>-linux-x86_64.AppImage / .deb
+#
+# 未签名的 mac 包用户首次打开需右键→打开（或 xattr -dr com.apple.quarantine）。
+# 正式对外分发需要 Apple Developer 账号 + 证书；见 CROSS-PLATFORM.md。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            artifact: win-x64
+          - os: macos-latest
+            target: mac
+            artifact: mac
+          - os: ubuntu-latest
+            target: linux
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # playwright/pm2 只是运行期可选依赖；桌面壳不需要它们的浏览器二进制。
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate icons
+        run: node scripts/gen-icons.js
+
+      - name: Build ${{ matrix.target }}
+        run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          # 未配置证书时不要让 electron-builder 去找钥匙串/证书而失败
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bingdashan-desktop-${{ matrix.artifact }}
+          path: |
+            app/*.exe
+            app/*.dmg
+            app/*.zip
+            app/*.AppImage
+            app/*.deb
+            app/*.blockmap
+          if-no-files-found: warn

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统架构透视 · 丙大山AI</title>
+<style>
+:root{--bg:#0b0f14;--fg:#e8edf2;--muted:#7a8a9a;--accent:#10b981;--accent-dim:#0d8a63;--card:#111820;--border:#1e2a38;--warn:#f59e0b;--danger:#ef4444;--ok:#10b981;--warn2:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;min-height:100vh}
+.container{max-width:1000px;margin:0 auto;padding:40px 20px;width:100%}
+header{text-align:center;margin-bottom:48px}
+.badge{display:inline-block;background:rgba(16,185,129,.15);color:var(--accent);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:16px}
+h1{font-size:clamp(28px,5vw,44px);line-height:1.2;margin-bottom:12px;font-weight:700}
+.subtitle{color:var(--muted);font-size:18px;max-width:800px;margin:0 auto 32px}
+.note-box{background:rgba(245,158,11,.1);border:1px solid var(--warn);border-radius:12px;padding:16px;margin-bottom:32px;font-size:14px;color:var(--warn)}
+.note-box .title{font-weight:700;margin-bottom:8px;color:var(--warn)}
+.layer{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px;transition:border-color .2s}
+.layer:hover{border-color:var(--accent-dim)}
+.layer-header{display:flex;gap:16px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.layer-order{width:36px;height:36px;border-radius:50%;background:rgba(16,185,129,.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0}
+.layer-name{font-size:20px;font-weight:700;flex:1;min-width:200px}
+.layer-role{color:var(--muted);font-size:14px;flex:1 1 100%;margin-top:4px}
+.status-badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px}
+.status-ok{background:rgba(16,185,129,.2);color:var(--ok)}
+.status-warn{background:rgba(245,158,11,.2);color:var(--warn2)}
+.status-down{background:rgba(239,68,68,.2);color:var(--danger)}
+.status-unknown{background:rgba(122,122,122,.2);color:var(--muted)}
+.components-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.comp{background:#0a1218;border:1px solid var(--border);border-radius:10px;padding:14px 16px;transition:all .2s}
+.comp:hover{border-color:var(--accent-dim);transform:translateY(-1px)}
+.comp-name{font-weight:600;font-size:14px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.comp-desc{font-size:13px;color:var(--muted);margin-bottom:8px}
+.comp-probe{font-size:11px;color:var(--muted);font-family:monospace}
+.probe-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:8px}
+.probe-call{background:rgba(16,185,129,.15);color:var(--ok)}
+.probe-file{background:rgba(245,158,11,.15);color:var(--warn2)}
+.probe-exists{background:rgba(122,122,122,.15);color:var(--muted)}
+.probe-capability{background:rgba(16,185,129,.15);color:var(--ok)}
+.probe-store{background:rgba(122,122,122,.15);color:var(--muted)}
+
+.loop-section{margin-top:48px}
+.loop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.loop-step{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px}
+.loop-step.ok{border-color:var(--ok)}
+.loop-step-header{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.loop-step-name{font-weight:700;font-size:16px}
+.loop-step-count{font-size:13px;color:var(--muted)}
+.loop-step-missing{color:var(--danger);font-size:13px;margin-top:8px}
+.loop-step-components{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.loop-comp{font-size:12px;padding:4px 8px;border-radius:6px;background:#0a1218;border:1px solid var(--border)}
+.loop-comp.ok{border-color:var(--ok);color:var(--ok)}
+.loop-comp.down{border-color:var(--danger);color:var(--danger)}
+.loop-comp.missing{border-color:var(--muted);color:var(--muted)}
+
+.summary-bar{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:32px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:16px}
+.summary-item{flex:1;min-width:160px}
+.summary-label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.summary-value{font-size:28px;font-weight:700;color:var(--fg)}
+.summary-value.ok{color:var(--ok)}
+.summary-value.warn{color:var(--warn2)}
+.summary-value.down{color:var(--danger)}
+
+footer{text-align:center;color:var(--muted);font-size:13px;padding:32px 0;border-top:1px solid var(--border);margin-top:48px}
+.loading{text-align:center;color:var(--muted);padding:40px}
+@media (max-width:640px){.layer-name{font-size:18px}.summary-value{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<span class="badge">系统架构透视 · 诚实版</span>
+<h1>七层架构 · 闭环自检</h1>
+<p class="subtitle">只展示代码里真实存在的东西。实时探测需要 server.js 运行；此页基于静态定义，标注为"静态"的均为定义而非实测。</p>
+</header>
+
+<div class="note-box">
+<div class="title">⚠ 诚实红线</div>
+• 组件存在 ≠ 组件工作。此页展示的是"代码里定义了什么"，而非"跑通了什么"。<br>
+• 实时探测需 server.js 运行（每层组件需真实 require + 调用轻量接口），当前 server.js 损坏（编码破坏），实时探测不可用。<br>
+• 静态定义 ≠ 实时状态。下方每层组件均标注"静态定义"，不代表已跑通。<br>
+• 闭环四步：感知→推理→工具→记忆。下方逐步标注依赖组件是否在架构里登记。
+</div>
+
+<div class="summary-bar" id="summaryBar">
+<div class="summary-item"><div class="summary-label">架构层数</div><div class="summary-value" id="totalLayers">7</div></div>
+<div class="summary-item"><div class="summary-label">组件总数</div><div class="summary-value" id="totalComps">—</div></div>
+<div class="summary-item"><div class="summary-label">闭环步骤</div><div class="summary-value" id="loopSteps">4</div></div>
+<div class="summary-item"><div class="summary-label">整体健康度</div><div class="summary-value" id="healthRate">静态</div></div>
+</div>
+
+<div id="layersContainer"></div>
+
+<div class="loop-section">
+<h2 style="margin-bottom:24px;font-size:22px">闭环四步自检</h2>
+<p style="color:var(--muted);margin-bottom:24px;font-size:14px">感知环境 → 推理规划 → 调用工具 → 记忆反馈。每步标注依赖组件是否在架构里登记（静态定义）。实时探测需 server 运行。</p>
+<div class="loop-grid" id="loopGrid"></div>
+</div>
+
+<footer>
+此页面基于 core/layers.js 静态定义生成。实时探测需 server.js 运行（当前损坏）。<br>
+诚实版本：不承诺未实现的能力，不隐瞒缺失组件，不把"定义了"当成"跑通了"。
+</footer>
+</div>
+
+<script src="page-dicts.js?v=20261016c"></script>
+<script src="page-i18n.js?v=20261016c"></script>
+<script>
+// 静态七层定义（从 core/layers.js 同步，不做实时探测）
+const LAYERS = [
+{
+id:'user',name:'用户层',order:1,
+role:'人与系统的全部接口：输入意图、接收反馈、控制节奏',
+components:[
+{key:'chat',label:'智能对话',probe:'call',mod:'brain',fn:'routeCommand'},
+{key:'voice_in',label:'语音输入',probe:'exists',file:'web/capture.js'},
+{key:'voice_out',label:'语音播报',probe:'capability',mod:'studio',fn:'synthesize'},
+{key:'settings',label:'系统设置（语言/声音/密钥/目标）',probe:'store'},
+{key:'i18n',label:'全站语言',probe:'file',file:'web/i18n.js'}
+]},
+{
+id:'sense',name:'感知层',order:2,
+role:'把外部世界的文本/图像/语音/视频/信号变成结构化输入',
+components:[
+{key:'capture',label:'图像/视频采集（摄像头）',probe:'file',file:'web/capture.js'},
+{key:'intel',label:'全网情报抓取',probe:'call',mod:'intel',fn:'headlines'},
+{key:'webfetch',label:'网页抓取',probe:'call',mod:'webfetch',fn:'probe'},
+{key:'firecrawl',label:'深度爬取',probe:'call',mod:'firecrawl',fn:'status'},
+{key:'geo',label:'客户地域感知',probe:'call',mod:'geo',fn:'query'},
+{key:'leadgen',label:'线索感知（真实触达回执）',probe:'call',mod:'leadgen',fn:'board'}
+]},
+{
+id:'cognition',name:'认知层',order:3,
+role:'推理、规划、决策、反思——把感知变成意图与计划',
+components:[
+{key:'brain',label:'大脑（记忆/学习/进化）',probe:'call',mod:'brain',fn:'learnStats'},
+{key:'decision',label:'决策框架/会诊',probe:'call',mod:'decision',fn:'list'},
+{key:'skills',label:'技能军械库',probe:'call',mod:'skills',fn:'list'},
+{key:'planning',label:'规划与任务分解',probe:'call',mod:'autopilot',fn:'status'},
+{key:'knowledge',label:'知识库/语义检索',probe:'call',mod:'knowledge',fn:'stats'},
+{key:'memory',label:'记忆中心',probe:'call',mod:'brain',fn:'countMemories'}
+]},
+{
+id:'protocol',name:'连接协议层',order:4,
+role:'统一对外/对内的调用契约：MCP、HTTP、WebSocket、模型代理',
+components:[
+{key:'mcp',label:'MCP 协议（服务端/客户端）',probe:'call',mod:'mcp',fn:'stats'},
+{key:'lightning',label:'模型代理层（轨迹/奖励/导出）',probe:'call',mod:'lightning',fn:'stats'},
+{key:'http_api',label:'原生 HTTP API（408 路由）',probe:'file',file:'server.js'},
+{key:'providers',label:'8家模型适配器',probe:'call',mod:'providers',fn:'list'}
+]},
+{
+id:'action',name:'行动层',order:5,
+role:'把决策变成真实动作：发布、收款、触达、发车、自愈',
+components:[
+{key:'autopub',label:'多平台发布',probe:'call',mod:'autopub',fn:'overview'},
+{key:'pay',label:'收款/结算/核销',probe:'call',mod:'pay',fn:'channelStatus'},
+{key:'outreach',label:'真实触达（邮件/webhook）',probe:'call',mod:'outreach',fn:'status'},
+{key:'scheduler',label:'调度/触达限流',probe:'call',mod:'scheduler',fn:'status'},
+{key:'watchdog',label:'自动巡检/自愈',probe:'call',mod:'watchdog',fn:'status'},
+{key:'autopilot',label:'24h自主运营',probe:'call',mod:'autopilot',fn:'status'},
+{key:'self_heal',label:'自动诊断/修复',probe:'call',mod:'self-heal',fn:'runOnce'}
+]},
+{
+id:'memory',name:'记忆知识层',order:6,
+role:'跨轮记忆、知识图谱、经验复用、证据链',
+components:[
+{key:'brain_mem',label:'记忆/学习/进化',probe:'call',mod:'brain',fn:'evolution'},
+{key:'knowledge',label:'知识库/语义检索',probe:'call',mod:'knowledge',fn:'stats'},
+{key:'lessons',label:'经验库（验证后注入）',probe:'call',mod:'lessons',fn:'stats'},
+{key:'evidence',label:'证据管道/市场证据',probe:'call',mod:'evidence-pipeline',fn:'status'},
+{key:'memory_hub',label:'记忆中枢/跨模块汇总',probe:'call',mod:'memory-hub',fn:'dashboard'},
+{key:'graphify',label:'知识图谱/关联',probe:'call',mod:'graphify',fn:'build'}
+]},
+{
+id:'governance',name:'治理层',order:7,
+role:'目标对齐、预算守护、合规闸门、风险熔断',
+components:[
+{key:'goals',label:'目标/进度/对齐',probe:'call',mod:'goals',fn:'all'},
+{key:'budget',label:'预算/推广池/核销',probe:'call',mod:'money',fn:'budget'},
+{key:'compliance',label:'合规/证据/审计',probe:'call',mod:'compliance',fn:'statusOf'},
+{key:'risk',label:'风险熔断/守护',probe:'call',mod:'guard',fn:'status'},
+{key:'warboard',label:'战情板/态势',probe:'call',mod:'warboard',fn:'snapshot'},
+{key:'settings',label:'设置中枢/体检',probe:'call',mod:'settings-registry',fn:'health'}
+]}
+];
+
+// 闭环四步定义（来自 core/layers.js 的 CLOSED_LOOP）
+const CLOSED_LOOP = [
+{id:'sense',name:'感知环境',via:['intel','webfetch','firecrawl','geo','leadgen','capture']},
+{id:'plan',name:'推理规划',via:['brain','decision','skills','planning','knowledge','memory']},
+{id:'act',name:'调用工具',via:['autopub','pay','outreach','scheduler','watchdog','autopilot','self_heal','mcp','lightning','http_api','providers']},
+{id:'learn',name:'记忆反馈',via:['brain_mem','knowledge','lessons','evidence','memory_hub','graphify']}
+];
+
+// 渲染
+function probeBadge(c){
+const p=c.probe||'unknown';
+const labels={call:'调用',file:'文件',exists:'存在',capability:'能力',store:'存储'};
+const cls=p==='call'?'probe-call':p==='file'?'probe-file':p==='exists'?'probe-exists':p==='capability'?'probe-capability':p==='store'?'probe-store':'';
+return '<span class="probe-badge '+cls+'">'+(labels[p]||p)+'</span>';
+}
+function compHTML(c){
+return '<div class="comp">'+
+'<div class="comp-name">'+c.label+probeBadge(c)+'</div>'+
+'<div class="comp-desc">'+PGT('探测方式：')+c.probe+' '+(c.mod?PGT('模块:')+c.mod+(c.fn?'.'+c.fn:'') : c.file?PGT('文件:')+c.file:'')+'</div>'+
+'<div class="comp-probe">静态定义 · 实时探测需 server 运行</div></div>';
+}
+function layerHTML(L){
+const total=L.components.length;
+return '<div class="layer">'+
+'<div class="layer-header">'+
+'<div class="layer-order">'+L.order+'</div>'+
+'<div class="layer-name">'+L.name+'</div>'+
+'<span class="status-badge status-warn">静态定义</span>'+
+'</div>'+
+'<div class="layer-role">'+L.role+'</div>'+
+'<div class="components-grid">'+L.components.map(compHTML).join('')+'</div>'+
+'<div style="margin-top:12px;font-size:13px;color:var(--muted)">'+PGT('组件数：{n} · 均为静态定义 · 实时探测需 server 运行',{n:total})+'</div></div>';
+}
+function loopHTML(s,byKey){
+const via=s.via.map(k=>byKey[k]||{key:k,state:'missing'});
+const okN=via.filter(x=>x.state==='ok').length;
+const cls=okN===via.length?'ok':okN>0?'':'';
+return '<div class="loop-step '+cls+'">'+
+'<div class="loop-step-header"><div class="loop-step-name">'+s.name+'</div><span class="loop-step-count">'+PGT('{a} / {b} 组件就绪',{a:okN,b:via.length})+'</span></div>'+
+(okN<via.length?'<div class="loop-step-missing">'+PGT('缺失：')+via.filter(x=>x.state==='missing').map(x=>x.key).join(', ')+'</div>':'')+
+'<div class="loop-step-components">'+via.map(x=>'<span class="loop-comp '+(x.state==='ok'?'ok':x.state==='down'?'down':'missing')+'">'+x.key+'</span>').join('')+'</div></div>';
+}
+
+// 挂载
+const container=document.getElementById('layersContainer');
+LAYERS.forEach(L=>{container.insertAdjacentHTML('beforeend',layerHTML(L));});
+
+// 闭环
+const byKey={};
+LAYERS.forEach(L=>L.components.forEach(c=>{byKey[c.key]={key:c.key,state:'static_definition'}}));
+const loopGrid=document.getElementById('loopGrid');
+CLOSED_LOOP.forEach(s=>{loopGrid.insertAdjacentHTML('beforeend',loopHTML(s,byKey));});
+
+// 摘要栏
+document.getElementById('totalLayers').textContent=LAYERS.length;
+document.getElementById('totalComps').textContent=LAYERS.reduce((a,l)=>a+l.components.length,0);
+document.getElementById('loopSteps').textContent=CLOSED_LOOP.length;
+</script>
+</body>
+</html>

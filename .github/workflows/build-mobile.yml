@@ -1,0 +1,67 @@
+name: build-mobile
+
+# iOS / Android 原生壳（Capacitor）。壳本身只是"把线上站点装进原生容器"，
+# 因此它必须排在"服务端已上线"之后。这里做两件事：
+#   1. Android：真的编出可侧载安装的 debug APK（无需签名证书）。
+#   Android 的 release 包需要 keystore；iOS 的 .ipa 需要 macOS + Xcode +
+#   Apple Developer 证书，这些都必须在对应环境里做，CI 只做能真做的部分：
+#   iOS 只验证 `cap sync` 与工程可编译（未签名），签名发布见 CROSS-PLATFORM.md。
+#
+# 鸿蒙（HarmonyOS）：没有可用的壳工程，走 PWA（浏览器"添加到主屏"），
+# 同一套 web 资产，见 CROSS-PLATFORM.md，不在这里造假产物。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      # Capacitor 8 的 Android 模板用的是 AGP 8.13 + Gradle 8.14 + compileSdk 36。
+      # AGP 8.13 需要 JDK 17 起，用 21 最稳（Gradle 8.14 官方支持 17–24）。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: npm ci --ignore-scripts
+      - run: node scripts/gen-icons.js
+      - run: npx cap add android || true
+      - run: npx cap sync android
+      - name: Assemble debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bingdashan-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/gen-icons.js
+      - run: npx cap add ios || true
+      - run: npx cap sync ios
+      - name: Validate iOS project compiles (unsigned)
+        working-directory: ios/App
+        run: |
+          xcodebuild -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -40

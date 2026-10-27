@@ -1,0 +1,1 @@
+{"name":"bd-paperclip-sidecar","private":true,"version":"0.0.0","description":"Isolated sidecar install of paperclipai (MIT). Not bundled into the Electron app.","dependencies":{"paperclipai":"^2026.1005.0"}}

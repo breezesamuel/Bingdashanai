@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>远程协助申请 · BingDaShan</title>
+<style>
+  :root { --bg:#0b1020; --panel:#141b33; --line:#2a3560; --fg:#e8ecf8; --dim:#9aa6c8; --ok:#3ddc97; --warn:#ffc857; --bad:#ff6b6b; --acc:#6ea8fe; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:28px 18px 60px; }
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .top h1 { font-size:20px; margin:0; flex:1; }
+  .lang button { background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:6px; padding:4px 9px; cursor:pointer; font:inherit; font-size:12px; }
+  .lang button.on { color:var(--fg); border-color:var(--acc); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:16px; margin:0 0 6px; }
+  .note { color:var(--dim); font-size:13px; margin:0 0 14px; }
+  label { display:block; font-size:13px; color:var(--dim); margin:12px 0 5px; }
+  input[type=text], textarea { width:100%; background:#0f1730; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font:inherit; }
+  textarea { min-height:92px; resize:vertical; }
+  .consent { display:flex; gap:10px; align-items:flex-start; background:#0f1730; border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:16px; font-size:13px; color:var(--dim); }
+  .consent input { margin-top:3px; width:18px; height:18px; flex:none; }
+  .actions { display:flex; gap:10px; align-items:center; margin-top:16px; flex-wrap:wrap; }
+  button.primary { background:#1d3d7a; color:var(--fg); border:1px solid #2f5ba8; border-radius:8px; padding:10px 18px; font:inherit; cursor:pointer; }
+  button.primary:disabled { opacity:.5; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+  .msg { margin-top:12px; font-size:13px; min-height:20px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:12px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--line); }
+  .pill.wait { color:var(--warn); border-color:#7a5c1d; }
+  .pill.done { color:var(--ok); border-color:#1f6f52; }
+  .empty { color:var(--dim); padding:8px 0; }
+  .warnbox { background:#33280f; border:1px solid #7a5c1d; border-radius:8px; padding:10px 12px; font-size:13px; color:#ffd98a; margin-bottom:14px; }
+  a { color:var(--acc); }
+  html[dir=rtl] th, html[dir=rtl] td { text-align:right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1 id="tTitle">远程协助申请</h1>
+    <div class="lang" id="langBox">
+      <button data-lang="zh" class="on">中文</button>
+      <button data-lang="en">EN</button>
+      <button data-lang="ar">عربي</button>
+    </div>
+  </div>
+
+  <div class="warnbox" id="tScopeNote"></div>
+
+  <section class="card">
+    <h2 id="tFormTitle">发起一次协助</h2>
+    <p class="note" id="tFormNote"></p>
+    <label id="tTopicLabel" for="topic">遇到的问题（一句话）</label>
+    <input id="topic" type="text" maxlength="200" autocomplete="off">
+    <label id="tScopeLabel" for="scope">需要查看 / 协助的范围</label>
+    <textarea id="scope" maxlength="500"></textarea>
+    <label id="tContactLabel" for="contact">联系方式（可选）</label>
+    <input id="contact" type="text" maxlength="120" autocomplete="off">
+    <div class="consent">
+      <input id="consent" type="checkbox">
+      <span id="tConsent"></span>
+    </div>
+    <div class="actions">
+      <button class="primary" id="submit"></button>
+      <button class="ghost" id="reload"></button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="tListTitle">我的协助记录</h2>
+    <p class="note" id="tListNote"></p>
+    <div id="list"><div class="empty">…</div></div>
+  </section>
+
+  <p class="note"><a href="/" id="tBack"></a></p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var DICT = {
+    zh: {
+      title: '远程协助申请',
+      scope: '这里只做“协调 + 留痕”：受理问题、约定时间、记录结论。不含屏幕共享或键鼠控制。若未来需要真正的远程控制，会另行签署授权书、全程录制并允许你随时断开。',
+      formTitle: '发起一次协助',
+      formNote: '请把问题写具体（哪个页面、点了什么、看到什么）。信息越具体，处理越快。24 小时内无人接单会自动关闭，你可以重新发起。',
+      topic: '遇到的问题（一句话）',
+      scopeLabel: '需要查看 / 协助的范围',
+      contact: '联系方式（可选）',
+      consent: '我同意运营人员在本次协助中查看我主动提供的信息，并知晓本次协助不包含远程控制；我可随时撤回。',
+      submit: '提交协助申请',
+      reload: '刷新状态',
+      listTitle: '我的协助记录',
+      listNote: '状态：待接单 / 处理中 / 已完成 / 已撤回 / 已过期。已完成的会显示处理结论。',
+      back: '← 返回首页',
+      needTopic: '请填写遇到的问题',
+      needScope: '请填写协助范围',
+      needConsent: '请先勾选同意书',
+      ok: '已提交，运营会按队列处理。编号：',
+      fail: '提交失败：',
+      cancel: '撤回',
+      cancelled: '已撤回',
+      empty: '还没有协助记录。',
+      thStatus: '状态', thTopic: '问题', thTime: '发起时间', thAct: '操作',
+      st: { requested: '待接单', accepted: '处理中', completed: '已完成', cancelled: '已撤回', expired: '已过期' }
+    },
+    en: {
+      title: 'Request assistance',
+      scope: 'This page is coordination and record-keeping only: we take your issue, agree a time, and record the outcome. No screen sharing or keyboard/mouse control. If real remote control is ever needed, you will sign a separate authorisation, the session will be recorded, and you can disconnect at any time.',
+      formTitle: 'Request help',
+      formNote: 'Be specific: which page, what you clicked, what you saw. The more detail, the faster we can help. Unclaimed requests close automatically after 24 hours; you can submit again.',
+      topic: 'What went wrong (one line)',
+      scopeLabel: 'What we may look at / help with',
+      contact: 'Contact (optional)',
+      consent: 'I agree that staff may look at the information I provide for this request, and I understand this does not include remote control. I can withdraw at any time.',
+      submit: 'Submit request',
+      reload: 'Refresh',
+      listTitle: 'My requests',
+      listNote: 'Status: waiting / in progress / completed / withdrawn / expired. Completed requests show the resolution.',
+      back: '← Back to home',
+      needTopic: 'Please describe the problem',
+      needScope: 'Please describe the scope',
+      needConsent: 'Please tick the consent box first',
+      ok: 'Submitted. Your reference: ',
+      fail: 'Submission failed: ',
+      cancel: 'Withdraw',
+      cancelled: 'Withdrawn',
+      empty: 'No requests yet.',
+      thStatus: 'Status', thTopic: 'Issue', thTime: 'Submitted', thAct: 'Action',
+      st: { requested: 'Waiting', accepted: 'In progress', completed: 'Completed', cancelled: 'Withdrawn', expired: 'Expired' }
+    },
+    ar: {
+      title: 'طلب مساعدة عن بُعد',
+      scope: 'هذه الصفحة للتنسيق والتوثيق فقط: نستلم المشكلة ونتفق على وقت ونسجّل النتيجة. لا يوجد مشاركة شاشة أو تحكّم بالفأرة ولوحة المفاتيح. إذا احتجت لاحقًا إلى تحكّم عن بُعد فعلي، فسيتم توقيع تفويض منفصل، وتسجيل الجلسة، ويمكنك قطع الاتصال في أي وقت.',
+      formTitle: 'اطلب المساعدة',
+      formNote: 'كن محدّدًا: أي صفحة، ماذا نقرت، وماذا رأيت. كلما زادت التفاصيل كان الحل أسرع. تُغلق الطلبات غير المستلمة تلقائيًا بعد 24 ساعة ويمكنك إعادة الإرسال.',
+      topic: 'ما المشكلة (سطر واحد)',
+      scopeLabel: 'نطاق الاطلاع / المساعدة',
+      contact: 'وسيلة التواصل (اختياري)',
+      consent: 'أوافق على اطلاع الموظفين على المعلومات التي أقدّمها لهذا الطلب، وأفهم أن هذا لا يشمل التحكّم عن بُعد. ويمكنني السحب في أي وقت.',
+      submit: 'إرسال الطلب',
+      reload: 'تحديث',
+      listTitle: 'طلباتي',
+      listNote: 'الحالة: بانتظار / قيد المعالجة / مكتمل / مسحوب / منتهي. الطلبات المكتملة تعرض النتيجة.',
+      back: '← العودة للرئيسية',
+      needTopic: 'يرجى وصف المشكلة',
+      needScope: 'يرجى وصف النطاق',
+      needConsent: 'يرجى تحديد مربع الموافقة أولًا',
+      ok: 'تم الإرسال. رقم المرجع: ',
+      fail: 'فشل الإرسال: ',
+      cancel: 'سحب',
+      cancelled: 'تم السحب',
+      empty: 'لا توجد طلبات بعد.',
+      thStatus: 'الحالة', thTopic: 'المشكلة', thTime: 'وقت الإرسال', thAct: 'إجراء',
+      st: { requested: 'بانتظار', accepted: 'قيد المعالجة', completed: 'مكتمل', cancelled: 'مسحوب', expired: 'منتهي' }
+    }
+  };
+
+  var lang = 'zh';
+  try {
+    var saved = localStorage.getItem('bd_lang');
+    if (saved && DICT[saved]) lang = saved;
+    else if ((navigator.language || '').indexOf('ar') === 0) lang = 'ar';
+    else if ((navigator.language || '').indexOf('zh') !== 0) lang = 'en';
+  } catch (e) {}
+  function T() { return DICT[lang] || DICT.zh; }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function apply() {
+    var t = T();
+    document.documentElement.lang = lang === 'ar' ? 'ar' : (lang === 'en' ? 'en' : 'zh-CN');
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    $('tTitle').textContent = t.title;
+    $('tScopeNote').textContent = t.scope;
+    $('tFormTitle').textContent = t.formTitle;
+    $('tFormNote').textContent = t.formNote;
+    $('tTopicLabel').textContent = t.topic;
+    $('tScopeLabel').textContent = t.scopeLabel;
+    $('tContactLabel').textContent = t.contact;
+    $('tConsent').textContent = t.consent;
+    $('submit').textContent = t.submit;
+    $('reload').textContent = t.reload;
+    $('tListTitle').textContent = t.listTitle;
+    $('tListNote').textContent = t.listNote;
+    $('tBack').textContent = t.back;
+    Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+      b.className = b.getAttribute('data-lang') === lang ? 'on' : '';
+    });
+    load();
+  }
+
+  function msg(text, cls) {
+    var m = $('msg');
+    m.textContent = text || '';
+    m.className = 'msg ' + (cls || '');
+  }
+
+  function load() {
+    fetch('/v1/assist/status', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var box = $('list');
+        if (!j || j.ok === false) { box.innerHTML = '<div class="empty">' + esc((j && j.error) || T().empty) + '</div>'; return; }
+        var items = j.items || [];
+        if (!items.length) { box.innerHTML = '<div class="empty">' + esc(T().empty) + '</div>'; return; }
+        var t = T();
+        var rows = items.map(function (a) {
+          var st = (t.st[a.status] || a.status);
+          var cls = a.status === 'completed' ? 'done' : (a.status === 'requested' || a.status === 'accepted' ? 'wait' : '');
+          var act = (a.status === 'requested' || a.status === 'accepted')
+            ? '<button class="ghost" data-cancel="' + esc(a.id) + '">' + esc(t.cancel) + '</button>' : '—';
+          return '<tr><td><span class="pill ' + cls + '">' + esc(st) + '</span></td><td>'
+            + esc(a.topic) + (a.resolution ? '<div class="note" style="margin:4px 0 0">' + esc(a.resolution) + '</div>' : '')
+            + '</td><td>' + esc(a.createdAt ? new Date(a.createdAt).toLocaleString() : '') + '</td><td>' + act + '</td></tr>';
+        }).join('');
+        box.innerHTML = '<table><thead><tr><th>' + esc(t.thStatus) + '</th><th>' + esc(t.thTopic)
+          + '</th><th>' + esc(t.thTime) + '</th><th>' + esc(t.thAct) + '</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        Array.prototype.forEach.call(box.querySelectorAll('button[data-cancel]'), function (b) {
+          b.onclick = function () {
+            b.disabled = true;
+            fetch('/v1/assist/cancel', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: b.getAttribute('data-cancel') })
+            }).then(function (r) { return r.json(); }).then(function (r2) {
+              if (!r2 || r2.ok === false) { msg((r2 && r2.error) || t.cancelled, 'bad'); b.disabled = false; return; }
+              msg(t.cancelled, 'ok');
+              load();
+            }).catch(function (e) { msg(String(e), 'bad'); b.disabled = false; });
+          };
+        });
+      })
+      .catch(function (e) { $('list').innerHTML = '<div class="empty">' + esc(String(e)) + '</div>'; });
+  }
+
+  $('submit').onclick = function () {
+    var t = T();
+    var topic = $('topic').value.trim();
+    var scope = $('scope').value.trim();
+    var contact = $('contact').value.trim();
+    if (!topic) return msg(t.needTopic, 'bad');
+    if (!scope) return msg(t.needScope, 'bad');
+    if (!$('consent').checked) return msg(t.needConsent, 'bad');
+    var btn = $('submit');
+    btn.disabled = true;
+    fetch('/v1/assist/request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: topic, scope: scope, contact: contact, consent: true })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      btn.disabled = false;
+      if (!j || j.ok === false) return msg(t.fail + ((j && j.error) || ''), 'bad');
+      msg(t.ok + (j.assist && j.assist.id || ''), 'ok');
+      $('topic').value = ''; $('scope').value = ''; $('contact').value = ''; $('consent').checked = false;
+      load();
+    }).catch(function (e) { btn.disabled = false; msg(t.fail + String(e), 'bad'); });
+  };
+
+  $('reload').onclick = load;
+  Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+    b.onclick = function () {
+      var l = b.getAttribute('data-lang');
+      if (!DICT[l]) return;
+      lang = l;
+      try { localStorage.setItem('bd_lang', l); } catch (e) {}
+      apply();
+    };
+  });
+
+  apply();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>丙大山AI · 激活授权</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png">
+<style>
+:root{--bg:#0b0f14;--fg:#e8edf2;--muted:#7a8a9a;--accent:#10b981;--accent-dim:#0d8a63;--card:#111820;--border:#1e2a38;--warn:#f59e0b;--err:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;min-height:100vh}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:720px;margin:0 auto;padding:40px 20px}
+header{text-align:center;margin-bottom:32px}
+h1{font-size:clamp(24px,4vw,34px);font-weight:700;margin-bottom:8px}
+.subtitle{color:var(--muted);font-size:15px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px}
+.card h2{font-size:18px;margin-bottom:14px}
+.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+.row:last-child{border-bottom:none}
+.row .k{color:var(--muted)}
+.row .v{font-weight:600;text-align:right;word-break:break-all}
+.pill{display:inline-block;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:700}
+.pill.ok{background:rgba(16,185,129,.15);color:var(--accent)}
+.pill.off{background:rgba(122,138,154,.15);color:var(--muted)}
+.pill.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+textarea{width:100%;min-height:96px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;resize:vertical}
+textarea:focus{outline:none;border-color:var(--accent)}
+.btn{padding:12px 20px;border-radius:10px;border:none;background:var(--accent);color:#051d13;font-weight:700;cursor:pointer;font-size:15px}
+.btn:hover{background:var(--accent-dim)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--fg);font-weight:600}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn.danger{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn.danger:hover{border-color:var(--err);color:#fca5a5}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;align-items:center}
+.msg{font-size:14px;margin-top:12px;min-height:22px}
+.msg.ok{color:#6ee7b7}.msg.err{color:#fca5a5}.msg.warn{color:var(--warn)}
+code{background:#0a1218;border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
+.steps{counter-reset:s;list-style:none}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;color:var(--muted);font-size:14px}
+.steps li::before{content:counter(s);position:absolute;left:0;top:6px;width:26px;height:26px;border-radius:50%;background:rgba(16,185,129,.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.steps li b{color:var(--fg)}
+.foot{color:var(--muted);font-size:13px;text-align:center;padding:24px 0;border-top:1px solid var(--border);margin-top:8px}
+.hint{color:var(--muted);font-size:13px;margin-top:8px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translate(-50%,120px);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 20px;z-index:99;transition:.25s;max-width:90vw}
+.toast.show{transform:translate(-50%,0)}
+.toast.ok{border-color:var(--accent);color:#6ee7b7}.toast.err{border-color:var(--err);color:#fca5a5}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>激活授权</h1>
+    <p class="subtitle">把运营方签发的授权码粘进来，本机所有付费功能立即开通。</p>
+  </header>
+
+  <div id="offlineWarn" class="card" style="display:none">
+    <h2>无法连接本机服务</h2>
+    <p class="hint">这个页面需要由**你本机的丙大山AI 客户端**提供（地址形如 <code>http://127.0.0.1:3721/activate.html</code>）。如果你是在公网网站上打开它，请改为：先安装并打开桌面/手机版 App，在 App 内打开「激活」页。</p>
+  </div>
+
+  <div class="card" id="statusCard" style="display:none">
+    <h2>当前授权状态</h2>
+    <div class="row"><span class="k">状态</span><span class="v" id="stState">—</span></div>
+    <div class="row"><span class="k">套餐</span><span class="v" id="stPlan">—</span></div>
+    <div class="row"><span class="k">到期时间</span><span class="v" id="stExp">—</span></div>
+    <div class="row"><span class="k">剩余天数</span><span class="v" id="stDays">—</span></div>
+    <div class="row"><span class="k">买家备注</span><span class="v" id="stWho">—</span></div>
+    <div class="row"><span class="k">设备绑定</span><span class="v" id="stBound">—</span></div>
+    <div class="row"><span class="k">本机机器码</span><span class="v"><code id="stFp">—</code></span></div>
+    <div class="actions">
+      <button class="btn ghost" id="btnCopyFp" type="button">复制机器码</button>
+      <button class="btn danger" id="btnDeact" type="button" disabled>解绑（换设备用）</button>
+    </div>
+    <p class="hint" id="boundHint">需要锁定设备时：把上面的机器码发给客服，客服签发一枚绑定该设备的授权码；换机时先在这里解绑。</p>
+  </div>
+
+  <div class="card" id="actCard" style="display:none">
+    <h2>粘贴授权码激活</h2>
+    <textarea id="keyInput" placeholder="BDS1-……（客服发给你的整串授权码）" spellcheck="false"></textarea>
+    <div class="actions">
+      <button class="btn" id="btnAct" type="button">激活</button>
+      <span class="msg" id="actMsg"></span>
+    </div>
+  </div>
+
+  <div class="card" id="stepsCard" style="display:none">
+    <h2>还没拿到授权码？</h2>
+    <ol class="steps">
+      <li><b>在 App 里打开付费功能</b>，会看到订阅/购买提示与价格。</li>
+      <li><b>按提示付款</b>（运营方确认到账后才会签发——不存在"付款后自动给码"的假承诺）。</li>
+      <li><b>把机器码发给客服</b>（若要绑定设备，点上面的「复制机器码」）。</li>
+      <li><b>把收到的授权码粘到上面</b>，点「激活」。</li>
+    </ol>
+    <p class="hint"><a href="/landing.html">查看套餐与价格 →</a></p>
+  </div>
+
+  <div class="card" id="limitCard" style="display:none">
+    <h2>关于授权方式（如实说明）</h2>
+    <p class="hint">离线授权码是**签名校验**：破解者无法伪造授权码，但有能力改本机程序的人仍可能绕过离线校验。要做到“绝对绕不过”，请使用 <b>托管模式</b>：让 App 只作为客户端连到运营方的服务器，权益与计费都在服务器上判定。两种模式的部署方式见仓库中的 <code>CROSS-PLATFORM.md</code>。</p>
+  </div>
+
+  <div class="card" id="diagCard" style="display:none">
+    <h2>运营端自检</h2>
+    <div class="row"><span class="k">客户端模式</span><span class="v" id="dgClient">—</span></div>
+    <div class="row"><span class="k">已配置授权公钥</span><span class="v" id="dgPub">—</span></div>
+    <div class="hint">若"已配置授权公钥"为否，说明本机没有任何可信任的签发公钥：请让运营方执行
+    <code>npm run license:keygen</code>，并把生成的 <code>license.pub</code> 随安装包一起发布。</div>
+  </div>
+
+  <div class="foot">丙大山AI · 授权码由运营方私钥签发，客户端只持有公钥（Ed25519 签名校验）</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="page-i18n.js?v=20261016c"></script>
+<script>
+'use strict';
+const PLAN_CN = { t: '体验（7 天）', m: '月付（30 天）', q: '季付（90 天）', y: '年付（365 天）', p: '买断（永久）' };
+const ERR_HINT = {
+  BAD_FORMAT: '这串码格式不对——请复制**完整**的授权码（以 BDS1- 开头），不要漏字符或带空格换行。',
+  BAD_SIGN: '签名校验不通过：这串码被改过，或者它根本不是本产品的运营方签发的。请联系客服重发。',
+  BAD_BODY: '授权码内容损坏，请让客服重新签发。',
+  EXPIRED: '这枚授权码已过期。请在提示的到期日之后联系客服续期／重新签发。',
+  FP_MISMATCH: '这枚授权码绑定的是**另一台设备**。请在该设备上激活；或联系客服解绑后重发。',
+  REUSED: '这枚授权码已经在本机被另一个账号激活过了，不能重复使用。',
+  NO_PUBKEY: '本机没有内置任何可信任的签发公钥，无法校验授权码。请让运营方执行 npm run license:keygen 并随安装包发布 license.pub。',
+  NO_PRIVKEY: '本机没有签发私钥（私钥只应存在于运营方，不该出现在客户端）。'
+};
+const $ = (id) => document.getElementById(id);
+function toast(text, kind) {
+  const t = $('toast');
+  t.textContent = text;
+  t.className = 'toast show ' + (kind || '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = 'toast'; }, 3600);
+}
+function fmtDate(ms) {
+  var loc = (window.PG && PG.lang === 'ar') ? 'ar' : (window.PG && PG.lang === 'en') ? 'en-US' : 'zh-CN';
+  try { return new Date(ms).toLocaleString(loc); } catch (e) { return String(ms); }
+}
+
+async function api(p, method, body) {
+  const opts = { method: method || 'GET', headers: {} };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const token = (() => { try { return localStorage.getItem('bd_adminToken'); } catch (e) { return null; } })();
+  if (token) opts.headers['X-Admin-Token'] = token;   // 运营端本机调试用；普通用户没有这个值
+  const r = await fetch(p, opts);
+  let j = null;
+  try { j = await r.json(); } catch (e) {}
+  return { status: r.status, body: j || {} };
+}
+
+function renderStatus(s) {
+  const lic = s.license || null;
+  const active = s.activated === true;
+  $('stState').innerHTML = active
+    ? '<span class="pill ok">已激活</span>'
+    : (s.subscribed ? '<span class="pill warn">有其他有效订阅</span>' : '<span class="pill off">未激活</span>');
+  $('stPlan').textContent = lic ? PGT(PLAN_CN[lic.plan] || lic.plan) : '—';
+  $('stExp').textContent = lic ? fmtDate(lic.exp) : '—';
+  $('stDays').textContent = lic ? (lic.daysLeft + PGT('天')) : '—';
+  $('stWho').textContent = (lic && lic.who) ? lic.who : '—';
+  $('stBound').textContent = lic ? (lic.bound ? '已绑定本机' : '未绑定（可换机）') : '—';
+  $('stFp').textContent = s.fingerprint || '—';
+  $('btnDeact').disabled = !active;
+  $('boundHint').style.display = (s.clientMode === false) ? 'none' : '';
+  $('dgClient').textContent = s.clientMode ? '是（这是下载/安装后的客户端）' : '否（这是运营端/托管实例）';
+  $('dgPub').innerHTML = s.pubConfigured
+    ? '<span class="pill ok">是</span>'
+    : '<span class="pill err" style="background:rgba(239,68,68,.15);color:#fca5a5">否</span>';
+  // 公钥未配置：任何人激活都会失败，必须显式提示（否则用户只会看到"验签失败"而不知所措）
+  const diag = $('diagCard');
+  diag.style.display = s.pubConfigured ? 'none' : '';
+  if (!s.pubConfigured) toast('本机未配置授权公钥，授权码将无法校验', 'err');
+}
+
+async function refresh() {
+  const r = await api('/v1/license/status');
+  if (r.status !== 200 || !('activated' in r.body)) throw new Error('bad status ' + r.status);
+  renderStatus(r.body);
+  return r.body;
+}
+
+async function boot() {
+  let s;
+  try { const r = await api('/v1/license/status'); if (r.status !== 200) throw new Error('http ' + r.status); s = r.body; }
+  catch (e) { $('offlineWarn').style.display = ''; return; }
+  ['statusCard', 'actCard', 'stepsCard', 'limitCard', 'diagCard'].forEach(id => { $(id).style.display = ''; });
+  renderStatus(s);
+
+  $('btnCopyFp').onclick = async () => {
+    const fp = s.fingerprint || '';
+    try { await navigator.clipboard.writeText(fp); toast('机器码已复制，发给客服即可', 'ok'); }
+    catch (e) {
+      const r = document.createRange(); r.selectNodeContents($('stFp'));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      toast('已选中机器码，请按 Ctrl/Cmd+C 复制', 'ok');
+    }
+  };
+
+  $('btnAct').onclick = async () => {
+    const key = $('keyInput').value.trim();
+    const msg = $('actMsg');
+    if (!key) { msg.className = 'msg err'; msg.textContent = '请先粘贴授权码。'; return; }
+    $('btnAct').disabled = true;
+    msg.className = 'msg'; msg.textContent = '校验中…';
+    try {
+      const r = await api('/v1/license/activate', 'POST', { key });
+      if (r.status === 200 && r.body.activated) {
+        msg.className = 'msg ok';
+        msg.textContent = PGT('激活成功：{plan}，到期 {date}。', {
+          plan: PGT(PLAN_CN[(r.body.license || {}).plan] || ''),
+          date: fmtDate((r.body.license || {}).exp)
+        });
+        $('keyInput').value = '';
+        renderStatus(r.body);
+      } else {
+        const code = r.body.code;
+        msg.className = 'msg err';
+        msg.textContent = (ERR_HINT[code] ? PGT(ERR_HINT[code]) : (r.body.error || PGT('激活失败'))) + (code ? '（' + code + '）' : '');
+      }
+    } catch (e) {
+      msg.className = 'msg err';
+      msg.textContent = PGT('网络/服务异常：') + (e && e.message || e);
+    } finally { $('btnAct').disabled = false; }
+  };
+
+  $('btnDeact').onclick = async () => {
+    if (!confirm(PGT('解绑后本机的授权权益会立即收回（用于把这枚码换到别的设备）。确定解绑？'))) return;
+    const r = await api('/v1/license/deactivate', 'POST');
+    if (r.status === 200) { toast(PGT('已解绑，可在另一台设备激活'), 'ok'); if (r.body && r.body.fingerprint) renderStatus(r.body); else refresh(); }
+    else toast(PGT('解绑失败：') + ((r.body && r.body.error) || r.status), 'err');
+  };
+}
+boot();
+</script>
+</body>
+</html>

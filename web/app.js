@@ -1,0 +1,5412 @@
+/* ============================================================
+   app.js — 丙大山AI 前端引擎
+   互联互动：所有模块走同一套 API；状态条轮询 /v1/status；
+   决策/组织/项目/审计 四大块数据变化即自动下滑展示。
+   自管理：主题/语言/模型 写入大脑设置；命令栏直接可用。
+   记忆/学习/进化：大脑实验室面板。
+   ============================================================ */
+'use strict';
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const api = async (path, opt, timeoutMs) => {
+  // 统一护栏：超时 + 网络异常不再吞掉静默，交由 uiFail 节流提示，调用方拿 { ok: false } 空态不崩溃
+  const safeEmpty = { ok: false, error: 'network_error' };
+  const ctrl = new AbortController();
+  // 默认 60s。【用户报的"请求超时（服务繁忙）"就出在这里】实测本机若干接口天然就慢：
+  // agentcenter/daemon/status ~11s、studio/capability ~12s、arch/layers ~5s，面板一开全部并发，
+  // 15s 必然把"慢"误判成"失败"。服务真没起时 fetch 会立刻报连接错误（不是超时），
+  // 所以放宽上限不会拖慢真正断连的提示，只会让慢接口跑完。
+  const tm = setTimeout(() => ctrl.abort(), timeoutMs || 60000);
+  // 运营令牌透传：非回环部署（云服务器）资金/凭据类接口必须带 X-Admin-Token，
+  // 否则 adminAuthed 会 403。回环时服务端放行，带上也不影响。
+  let _t = null;
+  try { _t = localStorage.getItem('bd_adminToken'); } catch (e) { _t = null; }
+  const hdrs = { 'Content-Type': 'application/json' };
+  if (_t) hdrs['X-Admin-Token'] = _t;
+  try {
+    const r = await fetch(path, Object.assign({ headers: hdrs, signal: ctrl.signal }, opt));
+    clearTimeout(tm);
+    return r.json().catch(() => safeEmpty);
+  } catch (e) {
+    clearTimeout(tm);
+    // 后台轮询（如 /v1/status）传 silent:true：连接状态已由顶栏指示点表达，
+    // 不必在断连时每 2s 弹一次吐司刷屏。
+    if (!(opt && opt.silent)) {
+      // 区分"超时"和"连不上"：以前两者都报"服务连接异常，请重试"，用户无法判断该怎么办。
+      uiFail(e && e.name === 'AbortError'
+        ? '⚠️ 请求超时（服务繁忙），请稍后重试'
+        : '⚠️ 无法连接服务器，请检查网络或服务是否在运行');
+    }
+    return safeEmpty;
+  }
+};
+// 错误路面提示（节流：2s 窗口只提示一次，避免连续轮询刷屏）
+// 【2026-10-24 离线抑制】服务重启/断连期间，十几个面板各自的报错 toast 会连环轰炸
+//（用户实测："请求超时""网络异常""GTM 数据加载失败"连刷）。现在：
+//   顶栏 poll() 连续 2 次失败 → 置 __BD_OFFLINE；离线期间 uiFail 一律静默
+//  （顶栏红点 + "引擎离线 · 重连中…" 已经说明了问题），恢复时统一提示并刷新当前面板。
+let _lastErr = 0;
+function uiFail(msg) {
+  if (window.__BD_OFFLINE) return;
+  const now = Date.now();
+  if (now - _lastErr < 2000) return;
+  _lastErr = now;
+  toast(msg || '⚠️ 服务连接异常，请重试', 'bad');
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = t => new Date(t).toLocaleString('zh-CN', { hour12: false });
+const today = t => new Date(t).toDateString() === new Date().toDateString();
+
+
+// ===== Orca WebSocket 实时连接 =====
+let orcaWS = null;
+let orcaWSReconnectTimer = null;
+
+function connectOrcaWS() {
+  if (orcaWS && (orcaWS.readyState === 0 || orcaWS.readyState === 1)) return;
+  // 部署到 HTTPS 后必须用 wss://，否则浏览器按"混合内容"拦截，实时看板永远连不上。
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/v1/orca/ws';
+  orcaWS = new WebSocket(wsUrl);
+  orcaWS.onopen = () => {
+    console.log('[orca] WS connected');
+    updateWSState('已连接', 'ok');
+  };
+  orcaWS.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'orca' && msg.data) {
+        if (msg.data.board) renderOrca(msg.data.board, msg.data.jobs || []);
+        updateWSState('实时', 'ok');
+      }
+    } catch (e) {}
+  };
+  orcaWS.onclose = () => {
+    console.log('[orca] WS closed');
+    updateWSState('已断开', 'bad');
+    scheduleReconnect();
+  };
+  orcaWS.onerror = (e) => {
+    console.warn('[orca] WS error', e);
+  };
+}
+
+function disconnectOrcaWS() {
+  if (orcaWSReconnectTimer) { clearTimeout(orcaWSReconnectTimer); orcaWSReconnectTimer = null; }
+  if (orcaWS) { orcaWS.close(); orcaWS = null; }
+  updateWSState('未连接', 'sub');
+}
+
+function scheduleReconnect() {
+  if (orcaWSReconnectTimer) return;
+  orcaWSReconnectTimer = setTimeout(() => {
+    orcaWSReconnectTimer = null;
+    if (activeTab === 'orca') connectOrcaWS();
+  }, 5000);
+}
+
+function updateWSState(text, kind) {
+  const el = $('#wsState');
+  if (el) { el.textContent = text; el.className = 'ws-state ' + kind; }
+}
+
+// ===== Toast =====
+function toast(msg, kind = '', ms) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.textContent = msg;
+  $('#toastWrap').appendChild(el);
+  setTimeout(() => el.remove(), Number(ms) > 0 ? Number(ms) : 3200);
+}
+
+// ===== 金手指：自动下滑 =====
+function autoscroll(container) {
+  if (!container) return;
+  requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+}
+window.autoscroll = autoscroll;
+
+// ===== Master UI：入场 stagger + 数字滚动 + 打字光标 =====
+function staggerPane(paneSel) {
+  const pane = $(paneSel);
+  if (!pane) return;
+  [...pane.children].forEach((el, i) => el.style.setProperty('--si', String(i + 1)));
+}
+function rollCount(el, target) {
+  if (!el) return;
+  const t = Math.max(0, Math.floor(Number(target) || 0));
+  const from = Number(el.dataset._v) || 0;
+  if (from === t) { el.textContent = t; return; }
+  const dur = 480, t0 = performance.now();
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (t - from) * e);
+    if (p < 1) requestAnimationFrame(step); else el.dataset._v = t;
+  };
+  el.dataset._v = t;
+  requestAnimationFrame(step);
+}
+function animateTyping(li) {
+  const m = document.createElement('span');
+  m.className = 'typingCaret';
+  li.appendChild(m);
+  setTimeout(() => m.remove(), 900);
+}
+function tinyConfetti(el) {
+  if (!el || el.getBoundingClientRect().width === 0) return;
+  const r = el.getBoundingClientRect();
+  for (let i = 0; i < 8; i++) {
+    const d = document.createElement('i');
+    d.style.cssText = 'position:fixed;left:' + (r.left + Math.random() * r.width) + 'px;top:' + r.top + 'px;width:6px;height:6px;border-radius:50%;background:var(--accent-2);pointer-events:none;z-index:200;opacity:.9;animation:burst .7s ease-out forwards;';
+    d.style.transform = 'translate(' + (Math.random() * 60 - 30) + 'px,' + (Math.random() * 46 + 8) + 'px)';
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 720);
+  }
+}
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '@keyframes burst{from{opacity:.9;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx,0),40px) scale(.4)}}';
+  document.head.appendChild(st);
+})();
+
+// ===== 浏览器能力检测（语音/摄像头）=====
+const hasMic = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+const hasCam = !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+
+// ===== 主题 =====
+const THEMES = [
+  { id: 'emerald', label: '森林', c: '#0d9488' }, { id: 'azure', label: '海蓝', c: '#2563eb' },
+  { id: 'crimson', label: '绯红', c: '#dc2626' }, { id: 'amber', label: '曜橙', c: '#d97706' },
+  { id: 'gold', label: '鎏金', c: '#b8860b' }, { id: 'violet', label: '紫曜', c: '#7c3aed' },
+  { id: 'slate', label: '石墨', c: '#475569' }, { id: 'mono', label: '墨黑', c: '#111111' },
+  { id: 'pearl', label: '雾乳', c: '#7b5b3a' }, { id: 'ocean', label: '青蓝', c: '#0891b2' },
+  { id: 'scifi', label: '量子舰', c: '#22d3ee' }
+];
+function buildThemes(on) {
+  const wrap = $('#themeGrid'); wrap.innerHTML = '';
+  THEMES.forEach(t => {
+    const b = document.createElement('div');
+    b.className = 'theme-btn' + (t.id === on ? ' on' : '');
+    b.innerHTML = '<div class="swatch" style="background:' + t.c + '"></div>' + t.label;
+    b.onclick = () => setTheme(t.id);
+    wrap.appendChild(b);
+  });
+  const dots = $('#themeDots'); dots.innerHTML = '';
+  THEMES.forEach(t => {
+    const d = document.createElement('span');
+    d.className = 'td' + (t.id === on ? ' on' : '');
+    d.style.background = t.c;
+    d.title = t.label;
+    d.onclick = () => setTheme(t.id);
+    dots.appendChild(d);
+  });
+}
+function setTheme(id) {
+  document.body.dataset.theme = id;
+  $$('.theme-btn').forEach(x => x.classList.toggle('on', x.textContent === THEMES.find(t => t.id === id).label));
+  $$('.td').forEach(x => x.classList.toggle('on', x.style.background === THEMES.find(t => t.id === id).c));
+  api('/v1/settings', { method: 'POST', body: JSON.stringify({ theme: id }) }).then(() => {});
+  autoPersist();
+}
+function autoPersist() {
+  const provider = $('#providerSel').value, mode = $('#modeSel').value, snd = $('#soundOn').checked;
+  // lang 不从这里读 #langSel.value：语言切换有独立的 change 处理器立刻落盘，
+  // 避免用户切完语言后因为又动了别的控件而被旧值覆盖回去。
+  const lang = I18N.get();
+  const soundKind = ($('#soundKind') && $('#soundKind').value) || 'notice';
+  api('/v1/settings', { method: 'POST', body: JSON.stringify({ lang, provider, mode, sound: snd, soundKind }) }).then(() => {});
+}
+
+// ===== 警告音（第 7 条：各种警告音，而不只是"一个开关"）=====
+// 三类事件各有自己的音型：普通提醒（单声）、告警（双声下行）、成功（上行三声）。
+// 用 WebAudio 现场合成，不依赖任何音频文件，打包后也不会丢声音。
+const SOUND_KINDS = {
+  notice: { name: '普通提醒', en: 'Notice', seq: [[660, 0, .18]] },
+  alert:  { name: '告警',     en: 'Alert',  seq: [[520, 0, .16], [380, .18, .22]] },
+  ok:     { name: '成功',     en: 'Success', seq: [[523, 0, .12], [659, .1, .12], [784, .2, .2]] },
+  fail:   { name: '失败',     en: 'Failure', seq: [[300, 0, .14], [220, .16, .3]] }
+};
+function playAlarm(kind) {
+  try {
+    const k = SOUND_KINDS[kind] || SOUND_KINDS.notice;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    k.seq.forEach(([freq, delay, dur]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = freq;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + delay;
+      o.start(t); g.gain.setValueAtTime(.001, t);
+      g.gain.exponentialRampToValueAtTime(.3, t + .01);
+      g.gain.exponentialRampToValueAtTime(.001, t + dur);
+      o.stop(t + dur + .01);
+    });
+    return true;
+  } catch (e) { return false; }
+}
+// 在设置页铺出「事件类型」下拉框
+(function initSoundPickers() {
+  const sel = $('#soundKind');
+  if (!sel) return;
+  const L = window.I18N ? I18N.get() : 'zh';
+  sel.innerHTML = Object.keys(SOUND_KINDS)
+    .map(k => '<option value="' + k + '">' + (L === 'en' ? SOUND_KINDS[k].en : SOUND_KINDS[k].name) + '</option>').join('');
+})();
+$('#testSoundBtn') && ($('#testSoundBtn').onclick = () => {
+  const kind = ($('#soundKind') && $('#soundKind').value) || 'notice';
+  if (playAlarm(kind)) { toast(I18N.t('common.test') + ' ✓', 'ok'); api('/v1/sound', { method: 'POST', body: JSON.stringify({ reason: '试听', kind }) }); }
+  else toast('当前环境不支持音频', 'bad');
+});
+
+// ===== 语言切换（第 1 条：全局原子切换，不允许新旧混排）=====
+// 关键点：先同步改 DOM（applyI18n），再重渲染当前面板的数据部分。
+// 顺序反了就会出现"标题已是英文、表格还是中文"的半吊子状态。
+function switchLang(code) {
+  // 用户主动切换 → 记标记，之后不再用地区默认覆盖（用户的选择永远优先）。
+  try { localStorage.setItem('bd_langUserChosen', '1'); } catch (e) {}
+  // 走 I18N.set() 而不是 __i18nSet + applyI18n：
+  // set() 内部会装 MutationObserver（新渲染出来的内容自动跟随语言），
+  // 并在控制台报出未收录词条数量；裸调 applyI18n 会漏掉后续动态内容。
+  I18N.set(code);
+  const L = I18N.get();
+  // 【语言不能乱·关键】把「我自己的选择」存本地（bd_lang），刷新后以本地为准。
+  // 只写全局 settings.lang 不够：那是**全站共用**的一个值，别的访客一改，
+  // 我下次打开就被改成他的语言（真实事故：用户选了中文，刷新后变英文/阿语）。
+  try { localStorage.setItem('bd_lang', L); } catch (e) {}
+  // 数据面板里的文字是渲染时生成 innerHTML 的，applyI18n 扫不到，
+  // 必须重跑一次当前 tab 的渲染函数才能整体一致。
+  try { refreshTab(activeTab); } catch (e) {}
+  if ($('#langNote')) $('#langNote').textContent = L;
+  if ($('#soundKind')) {
+    $('#soundKind').innerHTML = Object.keys(SOUND_KINDS)
+      .map(k => '<option value="' + k + '"' + (k === $('#soundKind').value ? ' selected' : '') + '>' +
+        (L === 'en' ? SOUND_KINDS[k].en : L === 'ar' ? (SOUND_KINDS[k].ar || SOUND_KINDS[k].en) : SOUND_KINDS[k].name) + '</option>').join('');
+  }
+// 语言是设置项之一，切换后要落库，否则重启又回到旧语言
+  try { api('/v1/settings', { method: 'POST', body: JSON.stringify({ lang: L }) }); } catch (e) {}
+}
+$('#langSel') && ($('#langSel').addEventListener('change', e => {
+  switchLang(e.target.value);
+  autoPersist();          // 落盘，下次启动就是选中的语言
+}));
+// 顶栏常驻语言切换器（data-lang-select）：与设置页共用同一套切换逻辑，
+// 保证「改一处、全站一致、并落库」，不会出现两处语言显示不一致。
+$$('[data-lang-select]').forEach(el => el.addEventListener('change', e => {
+  const code = e.target.value;
+  if ($('#langSel')) $('#langSel').value = code;
+  switchLang(code);
+  autoPersist();
+}));
+
+// ===== 目标任务（第 16 条）=====
+// 需求："半年千万kpi…可以改为目标任务，是所有功能模块程序的最核心指导目标，
+//      可以设立指导目标的添加窗口实现多样化"
+// 所以这里不只是改名：多条并存 + 显式指定哪一条是"核心"（★），
+// 核心目标会通过 /v1/goals/alignment 下发给指挥塔、autopilot、goalpilot 对齐。
+function renderGoals(list, al, pace) {
+  const box = $('#goalList');
+  if (!box) return;
+  if (!list || !list.length) {
+    box.innerHTML = '<div class="text-muted" style="padding:8px 0">' + I18N.t('goal.empty') + '</div>';
+    return;
+  }
+  box.innerHTML = list.map(g => {
+    const pct = (g === (list.find(x => x.primary) || {})) ? (al ? al.pct : 0) : null;
+    const per = { P1M: '1 个月', P3M: '3 个月', P6M: '6 个月', P1Y: '1 年' }[g.period] || g.period;
+    return '<div class="goal-row' + (g.primary ? ' is-primary' : '') + '">'
+      + '<div class="goal-main">'
+      +   (g.primary ? '<span class="goal-star" title="核心目标">★</span>' : '<span class="goal-star ghost">☆</span>')
+      +   '<span class="goal-title">' + esc(g.title) + '</span>'
+      +   (g.target ? '<span class="goal-num">' + esc(String(g.target)) + ' ' + esc(g.unit || '') + '</span>' : '')
+      +   (g.period ? '<span class="goal-per">' + esc(per) + '</span>' : '')
+      +   (pct !== null ? '<span class="goal-pct">' + pct + '%</span>' : '')
+      + '</div>'
+      + '<div class="goal-ops">'
+      +   (g.primary ? '' : '<button class="btn ghost small" data-goal-primary="' + esc(g.id) + '">设为核心</button>')
+      +   (g.builtin ? '' : '<button class="btn ghost small danger" data-goal-del="' + esc(g.id) + '">' + I18N.t('common.delete') + '</button>')
+      + '</div></div>';
+  }).join('');
+  renderGoalPace(pace);
+}
+
+// 追赶节奏面板：把"最核心指导目标"落成可执行动作
+function renderGoalPace(p) {
+  const box = $('#goalPace');
+  if (!box) return;
+  if (!p) { box.innerHTML = ''; return; }
+  if (!p.ok) { box.innerHTML = '<div class="gp-none">核心目标不可用：' + esc(p.reason || '未知') + '</div>'; return; }
+  if (!p.computable) {
+    // 目标值 0 / 周期到期 → 如实说"算不出来"，不编一个每日配额
+    box.innerHTML = '<div class="gp-none">' + esc(p.note || '无法折算每日配额') + '</div>';
+    return;
+  }
+  const st = { behind: ['落后', 'bad'], ahead: ['领先', 'ok'], ontrack: ['同步', ''], reached: ['已达成', 'ok'], overdue: ['已到期', 'bad'] }[p.status] || ['—', ''];
+  // 时间进度条 vs 实际进度：两条并排，差距一眼可见
+  const wAct = Math.max(1, Math.min(100, p.pct));
+  const wExp = Math.max(0, Math.min(100, p.expectedPct));
+  box.innerHTML =
+    '<div class="gp-head"><span class="gp-badge ' + st[1] + '">' + st[0] + '</span>'
+    + '<b>' + esc(p.title) + '</b><span class="gp-unit">' + esc(p.unit || '') + '</span></div>'
+    + '<div class="gp-bars">'
+    +   '<div class="gp-bar"><span>实际完成 ' + p.pct + '%</span><i style="width:' + wAct + '%"></i></div>'
+    +   '<div class="gp-bar exp"><span>按周期应完成 ' + p.expectedPct + '%</span><i style="width:' + wExp + '%"></i></div>'
+    + '</div>'
+    + '<div class="gp-note">' + esc(p.note) + '</div>'
+    + (p.dailyNeed !== null
+      ? '<div class="gp-need">今天至少要新增 <b>' + esc(String(Math.round(p.dailyNeed))) + ' ' + esc(p.unit || '') + '</b>'
+        + '<span class="gp-days">剩 ' + p.daysLeft + ' 天</span></div>'
+      : '');
+}
+function refreshGoals() {
+  return api('/v1/goals').then(d => renderGoals(d.goals, d.alignment, d.pace)).catch(() => {});
+}
+$('#goalAddBtn') && ($('#goalAddBtn').onclick = () => {
+  const title = ($('#goalInp') && $('#goalInp').value || '').trim();
+  if (!title) { toast(I18N.t('goal.ph'), 'bad'); return; }
+  const target = Number($('#goalAmtInp') && $('#goalAmtInp').value) || 0;
+  // 单位与周期现在由用户选（原来写死 CNY / P6M，"多样化"形同虚设）
+  const unit = ($('#goalUnitSel') && $('#goalUnitSel').value) || 'CNY';
+  const period = ($('#goalPeriodSel') && $('#goalPeriodSel').value) || 'P6M';
+  api('/v1/goals', { method: 'POST', body: JSON.stringify({ title, target, unit, period }) })
+    .then(d => { renderGoals(d.goals, d.alignment, d.pace); $('#goalInp').value = ''; $('#goalAmtInp').value = ''; toast(I18N.t('common.saved'), 'ok'); refreshGoals(); })
+    .catch(e => toast('添加失败: ' + (e.message || e), 'bad'));
+});
+$('#goalList') && ($('#goalList').addEventListener('click', ev => {
+  const pm = ev.target.closest('[data-goal-primary]');
+  const dl = ev.target.closest('[data-goal-del]');
+  // 【口径】三处渲染都必须把 pace 一起带上：设核心会换掉"每日需新增"的基数
+  // （换算基于 primary），只刷列表会让节奏面板停在旧目标上继续指导经营。
+  if (pm) {
+    api('/v1/goals/primary', { method: 'POST', body: JSON.stringify({ id: pm.getAttribute('data-goal-primary') }) })
+      .then(d => { renderGoals(d.goals, d.alignment, d.pace); toast(I18N.t('common.saved'), 'ok'); });
+  } else if (dl) {
+    api('/v1/goals', { method: 'DELETE', body: JSON.stringify({ id: dl.getAttribute('data-goal-del') }) })
+      .then(d => renderGoals(d.goals, d.alignment, d.pace))
+      .catch(e => toast(String(e.message || e), 'bad'));
+  }
+}));
+
+// ===== 导航切换 =====
+// 当前打开的 tab。用于"只刷新用户正在看的面板"（见文件末尾的轮询守卫）。
+// 初始取 .nav-item.active 的 data-tab（index.html 里 chat 是默认选中项）。
+let activeTab = ($$('.nav-item').find(x => x.classList.contains('active')) || $$('.nav-item')[0] || {}).dataset?.tab || 'chat';
+
+// 按 tab 名分发到对应的数据刷新函数。
+// 抽出来单独一个函数，是因为**切换语言时也要用**：面板里的表格/列表文字是
+// 渲染时写进 innerHTML 的，applyI18n() 扫不到它们，必须重跑一次渲染才会整体一致。
+// 之前语言只有 5 个键时没暴露这个问题，现在要全站切换，就必须有这条"重渲染"通路。
+const TAB_REFRESH = {
+  decision: refreshDecisions, org: refreshOrg, project: refreshProjects, tasks: refreshTasks,
+  audit: refreshAudit, setting: refreshSettingsFull, brain: refreshBrain, skills: refreshSkills,
+  agents: refreshAgents, cmd: refreshCmd, auto: refreshAutopilot, guard: refreshGuard,
+  warroom: refreshWar, studiohub: refreshStudioHub, funnel: refreshFunnel, capmap: refreshCapmap,
+  gtm: refreshGtm, partner: refreshPartner, cashier: refreshCashier, compliance: refreshCompliance,
+  outreach: refreshOutreach, convert: refreshConvert, 'commercial-loop': refreshCommercialLoop,
+  validator: refreshValidator
+};
+function refreshTab(tab) {
+  // 决策中心要同时刷框架列表和决策焦点（第 3 条）
+  if (tab === 'decision') { refreshFocus(); return refreshDecisions(); }
+  const fn = TAB_REFRESH[tab];
+  if (fn) { try { fn(); } catch (e) { console.warn('refreshTab ' + tab, e); } return; }
+  const B = window.BIZ;
+  if (!B) return;
+  const map = { subs: 'refreshSubs', rank: 'refreshRank', watch: 'refreshWatch', kpi: 'refreshKPI' };
+  if (map[tab] && typeof B[map[tab]] === 'function') { try { B[map[tab]](); } catch (e) {} }
+}
+
+// 切 tab 的唯一入口。原来这段逻辑内联在 nav 的 onclick 里，
+// 导致项目卡「看任务」这类"从别的面板跳过来"的需求只能自己复制一份切 tab 代码。
+function goTab(tab) {
+  const item = $$('.nav-item').find(x => x.dataset.tab === tab);
+  if (!item) return false;
+  item.click();
+  return true;
+}
+
+$$('.nav-item').forEach(it => it.onclick = () => {
+  const prevTab = activeTab;
+  $$('.nav-item').forEach(x => x.classList.remove('active'));
+  it.classList.add('active');
+  activeTab = it.dataset.tab;          // 记录当前 tab，供轮询守卫判断
+  $$('.tab-pane').forEach(p => p.hidden = true);
+  const pane = $('#tab-' + it.dataset.tab);
+  pane.hidden = false;
+  staggerPane('#tab-' + it.dataset.tab);
+  refreshTab(activeTab);
+
+  // Orca WebSocket 管理
+  if (activeTab === 'orca' && prevTab !== 'orca') {
+    connectOrcaWS();
+  } else if (prevTab === 'orca' && activeTab !== 'orca') {
+    disconnectOrcaWS();
+  }
+  unstuckPane(pane);
+});
+
+// ===== 面板兜底：失败不再永远停在「加载中…」=====
+// 用户报障「部分模块空白/一直转圈」的第二个根因：api() 在超时（15s）或网关拦截时
+// 返回 { ok:false }，但多数渲染函数只 `return`，没写错误态，静态占位符就永久停住。
+// 这里做一个兜底：切 tab 后 16s（> api 的 15s 超时）若该面板仍有叶子节点停在
+// 「加载中…」，就明确显示「加载失败 + 重试」，而不是无限转圈。绝不伪造内容。
+function unstuckPane(pane) {
+  if (!pane) return;
+  setTimeout(() => {
+    const leaves = [...pane.querySelectorAll('*')].filter(e =>
+      e.children.length === 0 && /^\s*加载中…?\s*$/.test((e.textContent || '').trim()));
+    leaves.forEach(el => {
+      el.innerHTML = '<span style="color:#f59e0b">加载失败（请求超时或被网关拦截）</span>'
+        + '<button class="guard-retry" style="margin-left:8px;padding:2px 8px;cursor:pointer;background:transparent;border:1px solid #f59e0b;color:#f59e0b;border-radius:4px">重试</button>';
+      const b = el.querySelector('.guard-retry');
+      if (b) b.onclick = () => { el.innerHTML = '加载中…'; refreshTab(activeTab); };
+    });
+  }, 16000);
+}
+$('#brandBtn').onclick = () => { autoPersist(); toast('已自动保存当前配置', 'ok'); };
+
+// ===== 状态轮询 =====
+let S = null;
+let _offlineTicks = 0;   // 连续失败计数（≥2 判定离线，防单次抖动误报）
+async function poll() {
+  try {
+    const d = await api('/v1/status', { silent: true });
+    if (!d.ok) throw 0;
+    S = d;
+    // 【恢复联动】离线 → 在线：清除抑制、提示、刷新当前面板（面板数据可能已过期）
+    if (window.__BD_OFFLINE) {
+      window.__BD_OFFLINE = false;
+      _offlineTicks = 0;
+      toast('✅ 已恢复连接', 'ok');
+      try { refreshTab(activeTab); } catch (e) {}
+    }
+    $('#verBox').textContent = d.version;
+    const cd = $('#connDot'); cd.className = 'dot ok'; $('#connTxt').textContent = '引擎在线 · 运行 ' + fmtUptime(d.uptimeMs) + ' · 前端 ' + (window.BD_BUILD || '?');
+    document.title = '丙大山AI · 引擎在线';
+    // 顶栏统计芯片
+    const st = d.stats;
+    rollCount($('#decTotal'), st.decisions.total);
+    $('#sbStats').innerHTML =
+      '<span class="sb-chip">决策 <b>' + st.decisions.total + '</b></span>' +
+      '<span class="sb-chip">员工 <b>' + st.org.headcount + '</b></span>' +
+      '<span class="sb-chip">项目 <b>' + st.org.projects + '</b></span>' +
+      '<span class="sb-chip">记忆 <b>' + (d.brain ? d.brain.memoryCount : 0) + '</b></span>' +
+      '<span class="sb-chip">进化 <b>' + (d.brain ? d.brain.evolutionTotal : 0) + '</b></span>' +
+      '<span class="sb-chip">技能 <b>' + (d.skillsTotal || 0) + '</b></span>';
+    if (d.brain && d.brain.recommended) $('#recProvider').textContent = d.brain.recommended;
+    // 首次拉取后回填设置
+    if (!firstLoadDone) { firstLoadDone = true; restoreSettings(d.settings); }
+    // 引擎标签
+    const lt = d.lastTurn;
+    if (lt) $('#engineTag').textContent = 'last: ' + (lt.engine || '—');
+  } catch (e) {
+    _offlineTicks++;
+    // 连续 2 次失败才判定离线（首次失败可能只是单次抖动/超时）
+    if (_offlineTicks >= 2) window.__BD_OFFLINE = true;
+    $('#connDot').className = 'dot bad';
+    $('#connTxt').textContent = '引擎离线 · 重连中…';
+  }
+}
+function fmtUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return (h ? h + '时' : '') + m + '分';
+}
+
+// ===== 智能对话 =====
+let firstLoadDone = false;
+
+// 地区默认语言：国内→中文(zh)，中东/阿语区→阿拉伯语(ar)，其余→英文(en)。
+// 只在"用户从未主动选过语言"时生效；一旦用户在顶栏/设置页选过，永久以用户选择为准。
+// 依据：浏览器语言 + 时区，纯本地判断，不外发任何数据。
+function regionLangDefault() {
+  try {
+    const langs = ((navigator.language || '') + ',' + ((navigator.languages || []).join(','))).toLowerCase();
+    const tz = (function () {
+      try { return String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase(); } catch (e) { return ''; }
+    })();
+    const arLang = /(^|,)(ar|fa|ur|he)(-|,|$)/.test(langs) || /arabic/.test(langs);
+    const arTz = /dubai|riyadh|cairo|baghdad|kuwait|qatar|muscat|amman|beirut|damascus|casablanca|algiers|tunis|khartoum|sanaa|gaza|aden|doha|manama|tehran/.test(tz);
+    if (arLang || arTz) return 'ar';
+    const zhLang = /(^|,)(zh|cn|yue)(-|,|$)/.test(langs) || /chinese/.test(langs);
+    const zhTz = /shanghai|chongqing|urumqi|harbin|kashgar|hong_kong|macau|taipei/.test(tz);
+    if (zhLang || zhTz) return 'zh';
+    return 'en';
+  } catch (e) { return 'en'; }
+}
+
+function restoreSettings(s) {
+  if (!s) return;
+  $$('#providerSel option').forEach(o => o.selected = o.value === s.provider);
+  $$('#modeSel option').forEach(o => o.selected = o.value === s.mode);
+  if (s.theme) document.body.dataset.theme = s.theme;
+  if (s.sound !== undefined) $('#soundOn').checked = !!s.sound;
+  if (s.soundKind && $('#soundKind')) $('#soundKind').value = s.soundKind;
+  buildThemes(s.theme || 'emerald');
+  // 语言最后处理：先定语言再重渲染当前面板，保证"设置一打开就是选中的语言"，
+  // 而不是先渲染一遍中文再切成英文（那一下闪屏就是用户说的"语言混乱"）。
+  let lang = s.lang;
+  let userChosen = false;
+  let localLang = null;
+  try { userChosen = !!localStorage.getItem('bd_langUserChosen'); localLang = localStorage.getItem('bd_lang'); } catch (e) {}
+  if (localLang) {
+    // 【语言不能乱·关键】本地存有「我自己的选择」时永远以它为准。
+    // 之前只看全局 s.lang：那是全站共用一个值，任何别的访客切语言都会把我改掉——
+    // 表现就是"我自己选了中文，刷新后变成别人的语言"。
+    lang = localLang;
+  } else if (!userChosen) {
+    // 从未主动选过 → 按地区默认（国内中文 / 中东阿语 / 其余英文），并落库
+    lang = regionLangDefault();
+    try { localStorage.setItem('bd_lang', lang); } catch (e) {}
+    try { api('/v1/settings', { method: 'POST', body: JSON.stringify({ lang }) }); } catch (e) {}
+  }
+  if (lang) {
+    I18N.set(lang);
+    $$('#langSel option').forEach(o => o.selected = o.value === I18N.get());
+    if ($('#langNote')) $('#langNote').textContent = I18N.get();
+  }
+}
+function addMsg(role, text, meta) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  // 注意：此前这里写的是 `esc(m)`，而 m 正是本行 const 声明的变量名 -> TDZ 抛错
+  // "Cannot access 'm' before initialization"，导致 addMsg 每次调用都失败、聊天页一条消息都渲染不出来。
+  const badge = meta ? '<span class="msg-badge">' + esc(meta) + '</span>' : '';
+  el.innerHTML = badge + '<span>' + esc(text).replace(/\n/g, '<br>') + '</span>';
+  $('#chatList').appendChild(el);
+  autoscroll($('#chatList'));
+  return el;
+}
+function attachSpeak(el, text, lang) {
+  if (!('speechSynthesis' in window)) return;
+  const acts = document.createElement('div');
+  acts.className = 'msg-actions';
+  const b = document.createElement('button');
+  b.textContent = '🔊 朗读';
+  b.onclick = e => { e.stopPropagation(); speak(text, lang); };
+  acts.appendChild(b);
+  el.appendChild(acts);
+}
+function exportChat() {
+  const rows = [...$('#chatList').querySelectorAll('.msg')].map(x => {
+    const role = x.classList.contains('user') ? '你' : 'AI';
+    const badge = x.querySelector('.msg-badge');
+    return '[' + role + ']' + (badge ? ' (' + badge.textContent + ')' : '') + '\n' + x.querySelector('span').textContent;
+  }).join('\n\n----- 分隔线 -----\n\n');
+  const blob = new Blob(['丙大山AI 会话导出\n\n' + rows], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'bingdashan-chat_' + new Date().toISOString().slice(0, 10) + '.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('会话已导出 TXT', 'ok');
+}
+async function send() {
+  const input = $('#chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg('user', text);
+  buddy('think', '让我想想…');
+  const files = pendingFiles.slice();
+  const typing = addMsg('bot', '丙大山正在思考…', 'thinking…');
+  typing.classList.add('typing');
+  animateTyping(typing);
+  const body = {
+    text,
+    provider: $('#providerSel').value,
+    lang: $('#langSel').value,
+    mode: $('#modeSel').value,
+    depth: $('#depthChk').checked,
+    files
+  };
+  try {
+    const d = await api('/v1/chat', { method: 'POST', body: JSON.stringify(body) });
+    typing.remove();
+    if (d.ok) {
+      const m = d.engine + (d.degraded ? '（降级通道）' : '');
+      const meta = d.lang ? m + ' · ' + { zh: '中文', en: 'EN', fr: 'FR', ar: 'AR' }[d.lang] : m;
+      const el = addMsg('bot', d.reply, meta);
+      if (d.tools && d.tools.length) {
+        const chip = document.createElement('div');
+        chip.className = 'msg-tools';
+        chip.innerHTML = '🛠 自动调用：' + d.tools.map(t => '<span class="msg-badge">' + esc(t) + '</span>').join('') + (d.intent ? ' · 意图:' + esc(d.intent) : '');
+        el.appendChild(chip);
+      }
+      // 第 2 条：能力缺口 + 检索到的可装载技能。
+      // 这一段是需求里"发现技能存在限制，就打开进化学习成长、搜寻技能来装载"的落地点——
+      // 后端已经把候选技能搜出来了，如果不在界面上露出来，用户根本不知道有路可走，
+      // 那就等于回到"我做不到"。所以这里给出可点的装载入口。
+      if (d.gap) {
+        const g = document.createElement('div');
+        g.className = 'msg-gap';
+        const cands = (d.discovery && d.discovery.candidates) || [];
+        let html = '<div class="gap-t">⚠️ 识别到能力缺口：本系统暂无直接完成该请求的模块</div>';
+        if (cands.length) {
+          html += '<div class="gap-s">已检索到可装载技能（点击即加入技能军械库）：</div><ul class="gap-list">';
+          cands.forEach(c => {
+            html += '<li><a class="gap-item" data-repo="' + esc(c.repo) + '" data-name="' + esc(c.name || '') + '">'
+              + '<span class="gap-repo">' + esc(c.repo) + '</span>'
+              + '<span class="gap-stars">★' + (c.stars || 0) + '</span>'
+              + '<span class="gap-desc">' + esc(c.desc || '') + '</span>'
+              + '<span class="gap-act">装载</span></a></li>';
+          });
+          html += '</ul>';
+        } else {
+          html += '<div class="gap-s">' + ((d.discovery && d.discovery.error)
+            ? '技能检索未完成（' + esc(d.discovery.error) + '，属网络问题非能力问题）。'
+            : '未检索到现成开源技能，可通过「记忆 · 学习 · 进化」沉淀新技能补齐。') + '</div>';
+        }
+        g.innerHTML = html;
+        g.addEventListener('click', ev => {
+          const a = ev.target.closest('.gap-item');
+          if (!a) return;
+          const repo = a.getAttribute('data-repo');
+          a.classList.add('loading');
+          api('/v1/skills/inject', { method: 'POST', body: JSON.stringify({ src: repo, name: a.getAttribute('data-name') }) })
+            .then(r => { a.classList.remove('loading'); a.classList.add('done'); a.querySelector('.gap-act').textContent = r.added ? '已装载' : '已存在'; toast(r.added ? '技能已装载：' + repo : '该技能已在库中', 'ok'); refreshSkills(); })
+            .catch(e => { a.classList.remove('loading'); a.querySelector('.gap-act').textContent = '失败'; toast('装载失败：' + (e.message || e), 'bad'); });
+        });
+        el.appendChild(g);
+      }
+      buddy('talk', '已回答 · ' + (d.engine || '丙大山'));
+      tinyConfetti($('#chatList').lastElementChild);
+      if ($('#modeSel').value === 'voice' && d.reply) speak(d.reply, $('#langSel').value);
+      else attachSpeak($('#chatList').lastElementChild, d.reply, $('#langSel').value);
+      poll();
+      refreshTasks();
+      window.setTimeout(() => buddy('happy', '随时待命 👋'), 2600);
+    } else {
+      addMsg('bot', d.error, '引擎异常');
+      buddy('idle', '刚才遇到了点状况，再试一次？');
+    }
+  } catch (e) {
+    typing.remove();
+    addMsg('bot', '网络异常：' + e.message, '引擎不可达');
+    buddy('idle', '网络连接不上…');
+  }
+  pendingFiles = [];
+  renderPills();
+  autoscroll($('#chatList'));
+}
+$('#sendBtn') && ($('#sendBtn').onclick = send);
+$('#chatInput') && $('#chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$('#clearBtn') && ($('#clearBtn').onclick = () => {
+  $('#chatList').innerHTML = '';
+  addMsg('bot', '会话已清空，历史记忆依然保留在大脑中。输入 /recall 可召回。', 'brain-console');
+});
+$('#exportChatBtn') && ($('#exportChatBtn').onclick = exportChat);
+
+// 语音输出（Web Speech）
+// 语音播报（第 2 条需求）——双路径，且**如实报告**是否真的出声了
+//
+// 为什么不把浏览器 speechSynthesis 当主路径：Electron 里常常一个语音包都没装，
+// speechSynthesis.speak() 不抛错也不出声，用户只会觉得功能坏了。
+// 所以：主路径 = 服务端 edge-tts 生成真实 mp3；浏览器仅作兜底。
+// 两条路都失败时，如实说明缺什么 + 给出安装命令，不假装成功。
+const VOICE_LOCALE = { zh: 'zh-CN', en: 'en-US' };
+let _voiceAudio = null;
+function playAudioDataUri(uri) {
+  try {
+    _voiceAudio = _voiceAudio || new Audio();
+    _voiceAudio.src = uri;
+    return _voiceAudio.play().then(() => true).catch(() => false);
+  } catch (e) { return Promise.resolve(false); }
+}
+function speakBrowser(text, lang) {
+  try {
+    if (!('speechSynthesis' in window)) return false;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = VOICE_LOCALE[lang] || 'zh-CN';
+    u.rate = 1.04;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    return true;   // 注意：这只代表"提交成功"，不代表真的有声音（无语音包时是静默失败）
+  } catch (e) { return false; }
+}
+function speak(text, lang) {
+  if (!text) return;
+  const t = String(text).slice(0, 4000);
+  api('/v1/voice', { method: 'POST', body: JSON.stringify({ text: t, lang: lang || I18N.get() }) })
+    .then(r => {
+      if (r && r.ok && r.audio) { playAudioDataUri(r.audio); return; }
+      // 服务端不可用 → 退回浏览器合成；并把真实原因告诉用户，不静默失败
+      const ok = speakBrowser(t, lang);
+      if (!ok) toast('语音不可用：' + ((r && r.reason) || '本机无语音引擎') + '，装 ' + ((r && r.installHint) || 'edge-tts') + ' 后可用', 'bad');
+    })
+    .catch(e => { if (!speakBrowser(t, lang)) toast('语音失败：' + (e.message || e), 'bad'); });}
+
+// 语音输入（Web Speech 识别）
+let rec = null;
+$('#micBtn') && ($('#micBtn').onclick = () => startMic());
+function startMic() {
+  if (!hasMic) return toast('当前浏览器不支持语音识别', 'bad');
+  if (rec && rec.listening) { rec.stop(); $('#micBtn').style.opacity = 1; buddy('idle', '听完啦，请继续说…'); return; }
+  const r = rec || (rec = new (window.webkitSpeechRecognition || window.SpeechRecognition)());
+  r.lang = VOICE_LOCALE[$('#langSel').value] || 'zh-CN';
+  r.continuous = true; r.interimResults = true;
+  $('#micBtn').style.opacity = .45;
+  buddy('listen', '我在听，请讲…');
+  r.onresult = e => {
+    let t = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+    $('#chatInput').value = t;
+  };
+  r.onend = () => { $('#micBtn').style.opacity = 1; buddy('idle', '随时待命 👋'); };
+  r.onerror = () => toast('语音识别失败，请检查麦克风', 'bad');
+  r.start();
+}
+
+// 摄像头
+let camStream = null;
+$('#camBtn') && ($('#camBtn').onclick = () => {
+  if (camStream) { stopCam(); return; }
+  if (!hasCam) return toast('当前环境不支持摄像头', 'bad');
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(stream => {
+      camStream = stream;
+      $('#camVideo').srcObject = stream;
+      $('#camWrap').hidden = false;
+      $('#camBtn').style.opacity = .45;
+      toast('摄像头已开启，可用于视频沟通', 'ok');
+    })
+    .catch(() => toast('摄像头调用被拒绝', 'bad'));
+});
+function stopCam() {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  $('#camWrap').hidden = true;
+  $('#camBtn').style.opacity = 1;
+}
+$('#camClose') && ($('#camClose').onclick = stopCam);
+
+// 文件拖放
+let pendingFiles = [];
+const DZ = $('#dropzone');
+['dragenter', 'dragover'].forEach(ev => DZ.addEventListener(ev, e => { e.preventDefault(); DZ.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => DZ.addEventListener(ev, e => { e.preventDefault(); DZ.classList.remove('drag'); }));
+DZ.addEventListener('drop', e => {
+  const EXT = /\.(pdf|doc|docx|txt|ppt|pptx|jpg|jpeg|png)$/i;
+  [...(e.dataTransfer.files || [])].forEach(f => {
+    if (EXT.test(f.name)) pendingFiles.push({ name: f.name, type: f.type || 'file' });
+    else toast('不支持 ' + f.name + '（仅 PDF/Word/TXT/PPT/JPG/PNG）', 'bad');
+  });
+  renderPills();
+});
+function renderPills() {
+  const wrap = $('#dzPills');
+  wrap.innerHTML = '';
+  wrap.classList.toggle('show', pendingFiles.length > 0);
+  pendingFiles.forEach((f, i) => {
+    const p = document.createElement('span');
+    p.className = 'dz-pill';
+    p.innerHTML = '📎 ' + esc(f.name) + ' <b data-i="' + i + '">✕</b>';
+    p.querySelector('b').onclick = () => { pendingFiles.splice(i, 1); renderPills(); };
+    wrap.appendChild(p);
+  });
+}
+
+// ===== 决策中心 =====
+// ===== 决策焦点（第 3 条）=====
+// 需求："当使用者选择了哪方面的决策……智能聊天机器人就应该有指向的完成任务目标"
+// 落地：选定领域 → 派发指向性任务 → 对话被牵引（orchestrator.prepare 里注入指令与该方向看板）
+function renderFocus(pr, domains) {
+  const box = $('#dfocusBody');
+  if (!box) return;
+  const sel = $('#dfDomain');
+  if (sel && domains && (!sel.options.length || sel.options.length !== domains.length)) {
+    sel.innerHTML = domains.map(d => '<option value="' + esc(d.name) + '">' + esc(d.name) + '（' + d.questions + ' 个决策问题）</option>').join('');
+  }
+  if (!pr || !pr.active) {
+    box.innerHTML = '<div class="text-muted" style="padding:6px 0">尚未设定决策焦点。选定方向后，系统会把它拆成指向性任务，并让智能对话朝这个方向回答。</div>';
+    return;
+  }
+  let h = '<div class="df-head"><span class="df-domain">' + esc(pr.domain) + '</span>'
+    + '<span class="df-topic">' + esc(pr.topic) + '</span>'
+    + '<span class="df-pct">' + pr.pct + '%</span></div>';
+  h += '<div class="df-bar"><i style="width:' + pr.pct + '%"></i></div>';
+  h += '<div class="df-meta">共 ' + pr.total + ' 项指向性任务 · 已完成 ' + pr.done + ' · 进行中 ' + pr.running
+    + ' · <b>' + (pr.answered ? '决策已有答案' : '决策尚待回答') + '</b></div>';
+  h += '<ul class="df-tasks">';
+  pr.tasks.forEach(t => {
+    h += '<li class="' + (t.done ? 'done' : '') + '"><span class="df-mark">' + (t.done ? '☑' : '☐') + '</span>'
+      + '<span class="df-tt">' + esc(t.title) + '</span>'
+      + (t.accept ? '<span class="df-ac">验收：' + esc(t.accept) + '</span>' : '')
+      + '</li>';
+  });
+  h += '</ul>';
+  h += '<div class="row" style="gap:8px;margin-top:6px"><button class="btn ghost small" id="dfCloseBtn">结束该焦点</button>'
+    + '<button class="btn ghost small" id="dfToTasks">去任务台查看</button></div>';
+  box.innerHTML = h;
+  const cb = $('#dfCloseBtn');
+  if (cb) cb.onclick = () => api('/v1/decision/focus', { method: 'DELETE', body: JSON.stringify({}) })
+    .then(d => { renderFocus(d.progress); refreshDecisions(); toast('已结束该决策焦点', 'ok'); })
+    .catch(e => toast(String(e.message || e), 'bad'));
+  const tb = $('#dfToTasks');
+  if (tb) tb.onclick = () => { const a = $$('.nav-item').find(x => x.dataset.tab === 'tasks'); if (a) a.click(); };
+}
+function refreshFocus() {
+  return api('/v1/decision/focus').then(d => renderFocus(d.progress, d.domains)).catch(() => {});
+}
+$('#dfSetBtn') && ($('#dfSetBtn').onclick = () => {
+  const domain = $('#dfDomain').value;
+  const topic = ($('#dfTopic').value || '').trim();
+  if (!domain) { toast('请选择决策方向', 'bad'); return; }
+  api('/v1/decision/focus', { method: 'POST', body: JSON.stringify({ domain, topic }) })
+    .then(d => {
+      renderFocus(d.progress);
+      refreshTasks();
+      toast('已派发 ' + d.tasks + ' 项指向性任务，智能对话将朝「' + d.focus.domain + '」方向回答', 'ok');
+    })
+    .catch(e => toast(String(e.message || e), 'bad'));
+});
+
+async function refreshDecisions() {
+  const d = await api('/v1/decisions');
+  if (!d.ok) return;
+  rollCount($('#decTotal'), d.stats.total);
+  rollCount($('#decToday'), d.stats.today);
+  // 7 日趋势柱状
+  if (d.stats.trend) {
+    const max = Math.max(1, ...d.stats.trend.map(x => x.count));
+    $('#decTrend').innerHTML = d.stats.trend.map(x =>
+      '<div class="trend-col"><span class="trend-n">' + x.count + '</span><div class="trend-bar" style="height:' + Math.max(6, Math.round(x.count / max * 44)) + 'px"></div><span class="trend-day">' + x.day + '</span></div>'
+    ).join('');
+  }
+  const b = $('#decBoard');
+  b.innerHTML = '';
+  d.decisions.forEach(x => {
+    const el = document.createElement('div');
+    el.className = 'dec-card';
+    el.innerHTML =
+      '<div class="dec-q">' + esc(x.question) + '</div>' +
+      (x.answer ? '<div class="dec-a">' + esc(x.answer).replace(/\n/g, '<br>') + '</div>' : '') +
+      '<div class="dec-meta"><span>' + (x.engine || 'manual') + '</span><span>来源:' + esc(x.source || '—') + '</span><span>' + fmt(x.createdAt) + '</span></div>';
+    b.appendChild(el);
+  });
+  autoscroll(b);
+}
+$('#decForm') && $('#decForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  await api('/v1/decisions', { method: 'POST', body: JSON.stringify({ question: $('#decQ').value, answer: $('#decA').value }) });
+  $('#decQ').value = ''; $('#decA').value = '';
+  toast('决策已登记', 'ok');
+  refreshDecisions();
+});
+
+// ===== 组织大脑 =====
+function avatar(name) { return esc(String(name || '员').slice(0, 1).toUpperCase()); }
+async function refreshOrg() {
+  const d = await api('/v1/org/staff');
+  if (!d.ok) return;
+  rollCount($('#orgHead'), d.stats.headcount);
+  rollCount($('#orgActive'), d.stats.active);
+  rollCount($('#orgProj'), d.stats.running);
+  const g = $('#staffGrid');
+  g.innerHTML = '';
+  if (!d.staff.length) {
+    g.innerHTML = '<div class="sub" style="grid-column:1/-1;padding:16px">组织尚无人 — 下拉新建或对话中录入员工。</div>';
+  }
+  d.staff.forEach(x => {
+    const el = document.createElement('div');
+    el.className = 'staff ' + (x.status === 'on' ? 'on' : 'off');
+    el.innerHTML =
+      '<div class="staff-avatar">' + avatar(x.name) + '</div>' +
+      '<div class="staff-name">' + esc(x.name) + ' <span class="chip ' + (x.status === 'on' ? 'running' : 'paused') + '">' + (x.status === 'on' ? '在岗' : '离线') + '</span></div>' +
+      '<div class="staff-role">' + esc(x.role || '成员') + '</div>' +
+      '<div class="staff-skills">' + (x.skills || []).map(s => '<span class="skill">' + esc(s) + '</span>').join('') + '</div>';
+    el.title = '点击切换在岗/离线';
+    el.onclick = async () => {
+      await api('/v1/org/staff', { method: 'PATCH', body: JSON.stringify({ id: x.id, patch: { status: x.status === 'on' ? 'off' : 'on' } }) });
+      refreshOrg();
+    };
+    g.appendChild(el);
+  });
+  autoscroll(g);
+}
+$('#staffForm') && $('#staffForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const skills = $('#staffSkill').value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+  await api('/v1/org/staff', { method: 'POST', body: JSON.stringify({ name: $('#staffName').value, role: $('#staffRole').value, skills }) });
+  $('#staffName').value = ''; $('#staffRole').value = ''; $('#staffSkill').value = '';
+  toast('员工已加入组织', 'ok');
+  refreshOrg();
+});
+
+// ===== 项目管理 =====
+async function refreshProjects() {
+  const d = await api('/v1/projects');
+  if (!d.ok) return;
+  const g = $('#projGrid');
+  g.innerHTML = '';
+  if (!d.projects.length) {
+    g.innerHTML = '<div class="sub" style="grid-column:1/-1;padding:16px">暂无项目 — 新建一个并行项目开始。</div>';
+  }
+  // 整板一览：只统计事实（派生自任务/项目表），不掺经营口径猜测
+  if (d.summary) {
+    const sm = d.summary;
+    const strip = $('#projSummary');
+    if (strip) {
+      strip.innerHTML =
+        '<span class="chip running">进行中 ' + sm.running + '</span>' +
+        '<span class="chip paused">暂停 ' + sm.paused + '</span>' +
+        '<span class="chip done">已完成 ' + sm.done + '</span>' +
+        '<span class="chip warn">未拆解 ' + sm.noTasks + '</span>' +
+        '<span class="chip ' + (sm.overdueTasks ? 'warn' : '') + '">逾期 ' + sm.overdueTasks + '</span>' +
+        '<span class="chip ' + (sm.unclaimedTasks ? 'warn' : '') + '">待认领 ' + sm.unclaimedTasks + '</span>';
+    }
+  }
+  d.projects.forEach(x => {
+    const el = document.createElement('div');
+    el.className = 'proj';
+    const chip = { running: ['进行中', 'running'], paused: ['已暂停', 'paused'], done: ['已完成', 'done'] }[x.status] || ['进行中', 'running'];
+    const memChips = (x.members || []).map(m => '<span class="chip running" title="成员: ' + esc(m) + '">👤 ' + esc(m) + '</span>').join('') +
+      (x.owner ? '<span class="chip" style="background:#fef3c7;color:#92400e" title="负责人">👑 ' + esc(x.owner) + '</span>' : '');
+    el.innerHTML =
+      '<div class="proj-head"><span class="proj-name">' + esc(x.name) + '</span><span class="chip ' + chip[1] + '">' + chip[0] + '</span></div>' +
+      '<div class="proj-desc">' + esc(x.desc || '——') + '</div>' +
+      (memChips ? '<div class="proj-foot">' + memChips + '</div>' : '') +
+      '<div class="progress"><i style="width:' + Math.max(2, x.progress) + '%"></i></div>' +
+      '<div class="proj-foot"><span>' + (fmt(x.createdAt).slice(0, 16)) + '</span><span>' + x.progress + '%</span></div>' +
+      // 第 5 条收尾：子任务进度（任务完成时由 /v1/tasks PATCH 回填）。
+      // 与上面的 progress 并列而不是替换——progress 是手工/经营口径，
+      // 子任务是"具体事项推进到哪"，两个口径都真实，混成一个反而失真。
+      // 0 任务必须显式显示"未拆解"而不是隐藏整行——藏起来用户分不清"没拆"还是"做完了"。
+      (x.noTasks
+        ? '<div class="proj-sub none"><span class="sub">子任务</span><span class="chip warn">未拆解（0 个具体事项）</span>' +
+          '<span class="sub proj-jump" data-s="tasks">看任务 →</span></div>'
+        : '<div class="proj-sub"><span class="sub">子任务</span>' +
+          '<span class="proj-sub-bar"><i style="width:' + (x.taskPct || 0) + '%"></i></span>' +
+          '<span class="sub">' + (x.taskDone || 0) + '/' + x.taskTotal + '</span>' +
+          (x.taskOverdue ? '<span class="sub warn">⚠ 逾期 ' + x.taskOverdue + '</span>' : '') +
+          (x.taskUnclaimed ? '<span class="sub warn">无人 ' + x.taskUnclaimed + '</span>' : '') +
+          '<span class="sub proj-jump" data-s="tasks">看任务 →</span></div>') +
+      // 停滞预警：上次变动距今，只反映"有多久没动"，不猜为什么
+      (x.lastActivityDays !== null && x.lastActivityDays > 0
+        ? '<div class="proj-foot"><span class="sub ' + (x.lastActivityDays >= 7 ? 'warn' : '') + '">⏳ ' + x.lastActivityDays + ' 天没动</span></div>'
+        : '') +
+      '<div class="proj-foot"><span class="sub" style="cursor:pointer" data-s="team">👥 指派</span><span class="sub" style="cursor:pointer" data-s="pause">⏸ 暂停</span><span class="sub" style="cursor:pointer" data-s="done">✓ 完成</span><span class="sub" style="cursor:pointer" data-s="run">▶ 进行</span><span class="sub danger" style="cursor:pointer;color:#ef4444" data-s="del">🗑</span></div>';
+    g.appendChild(el);
+    // 「看任务」→ 跳任务台并只显示该项目的任务（第 6 条与第 5 条的接缝）
+    const jump = el.querySelector('.proj-jump');
+    if (jump) jump.onclick = () => { goTab('tasks'); filterTasksByProject(x.id, x.name); };
+    el.querySelector('[data-s="team"]').onclick = () => assignTeam(x);
+    el.querySelector('[data-s="pause"]').onclick = () => patchProj(x.id, { status: 'paused' });
+    el.querySelector('[data-s="done"]').onclick = () => patchProj(x.id, { status: 'done', progress: 100 });
+    el.querySelector('[data-s="run"]').onclick = () => patchProj(x.id, { status: 'running' });
+    el.querySelector('[data-s="del"]').onclick = () => confirmBox('删除项目「' + x.name + '」？', async () => {
+      await api('/v1/projects', { method: 'DELETE', body: JSON.stringify({ id: x.id }) });
+      toast('项目已删除', 'ok'); refreshProjects();
+    });
+    el.querySelector('.progress').onclick = () => {
+      const n = prompt('调整进度（0-100）', x.progress);
+      const v = parseInt(n, 10);
+      if (!isNaN(v)) patchProj(x.id, { progress: Math.max(0, Math.min(100, v)) });
+    };
+  });
+  autoscroll(g);
+}
+async function patchProj(id, patch) {
+  await api('/v1/projects', { method: 'PATCH', body: JSON.stringify({ id, patch }) });
+  refreshProjects();
+}
+async function assignTeam(p) {
+  const st = await api('/v1/org/staff');
+  if (!st.ok) return toast('员工数据不可用', 'bad');
+  const opts = ['【不指派 / 清除负责人与成员】']
+    .concat(st.staff.map((s, i) => i + 1 + '. ' + s.name + '（' + (s.role || '成员') + '）'));
+  const line1 = prompt('「' + p.name + '」指派负责人（输入 编号 或 清除）：\n' + opts.join('\n'));
+  if (line1 === null) return;
+  if (line1.trim() === '' || /清|0/.test(line1.trim())) {
+    await patchProj(p.id, { owner: '', members: [] });
+    toast('已清除项目人员', 'ok');
+    return;
+  }
+  const oi = parseInt(line1.trim(), 10) - 1;
+  const owner = (oi >= 0 && st.staff[oi]) ? st.staff[oi].name : null;
+  const line2 = prompt('「' + p.name + '」指派成员（输入编号，逗号分隔多选）：\n(留空表示仅负责人)\n' + opts.slice(1).join('\n'));
+  if (line2 === null) return;
+  const members = line2.trim()
+    ? line2.split(/[,，]/).map(s => { const i = parseInt(s.trim(), 10) - 1; return (i >= 0 && st.staff[i]) ? st.staff[i].name : null; }).filter(Boolean)
+    : [];
+  await patchProj(p.id, { owner: owner || '', members });
+  toast('人员已指派：' + [owner || '', ...members].filter(Boolean).join('、'), 'ok');
+  refreshOrg();
+}
+$('#projForm') && $('#projForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  await api('/v1/projects', { method: 'POST', body: JSON.stringify({ name: $('#projName').value, desc: $('#projDesc').value, status: $('#projStatus').value }) });
+  $('#projName').value = ''; $('#projDesc').value = '';
+  toast('项目已启动（并行）', 'ok');
+  refreshProjects();
+});
+
+// ===== 任务台 =====
+// 按项目过滤（第 5 条 ↔ 第 6 条接缝）：项目卡点「看任务」跳过来时，
+// 只看这个项目的任务。过滤态必须在界面上明说，否则用户会以为"这个项目
+// 没有任务"——其实是筛掉了（第 18 条：不能让人对数据的可见性产生误解）。
+let taskProjFilter = { id: '', name: '' };
+function filterTasksByProject(id, name) {
+  taskProjFilter = { id: id || '', name: name || '' };
+  refreshTasks();
+}
+async function refreshTasks() {
+  const d = await api('/v1/tasks');
+  if (!d.ok) return;
+  // 第 6 条：明确任务数量与进展。用户最关心"在跑几个"，单列；
+  // 新增"未认领/逾期"真实缺口卡与按来源分组，任务台不再只是总数字。
+  $('#taskStats').innerHTML =
+    '<div class="stat"><div class="stat-v">' + d.tasks.length + '</div><div class="stat-l">任务总数</div></div>' +
+    '<div class="stat"><div class="stat-v ok">' + d.runningCount + '</div><div class="stat-l">在跑</div></div>' +
+    '<div class="stat"><div class="stat-v">' + d.open.length + '</div><div class="stat-l">待办</div></div>' +
+    (d.unclaimedCount ? '<div class="stat"><div class="stat-v warn">' + d.unclaimedCount + '</div><div class="stat-l">未认领</div></div>' : '') +
+    (d.overdueCount ? '<div class="stat"><div class="stat-v bad">' + d.overdueCount + '</div><div class="stat-l">已逾期</div></div>' : '') +
+    (d.blockedCount ? '<div class="stat"><div class="stat-v bad">' + d.blockedCount + '</div><div class="stat-l">受阻</div></div>' : '') +
+    '<div class="stat"><div class="stat-v">' + d.done + '</div><div class="stat-l">已完成</div></div>'
+    + (d.focus && d.focus.active
+      ? '<div class="stat"><div class="stat-v">' + d.focus.done + '/' + d.focus.total + '</div><div class="stat-l">决策焦点 ' + esc(d.focus.domain) + '</div></div>'
+      : '');
+
+  // 按来源分组（ref 前缀是可靠的来源标记）
+  const srcLabel = { decision: '决策', goalpilot: '目标', project: '项目', chat: '聊天', manual: '手工', other: '其他', none: '无来源' };
+  const srcEl = $('#taskBySource');
+  if (srcEl) {
+    const parts = Object.keys(d.bySource || {}).map(k => {
+      const running = String(k).endsWith('(在跑)');
+      const base = running ? k.slice(0, -4) : k;
+      const cls = running ? 'chip running' : 'chip';
+      return '<span class="' + cls + '">' + esc(srcLabel[base] || base) + (running ? '·在跑' : '') + ' ' + d.bySource[k] + '</span>';
+    });
+    srcEl.innerHTML = '<span class="sub" style="opacity:.75">来源：</span>' + parts.join(' ') + (parts.length ? '' : '<span class="sub" style="opacity:.5">暂无</span>');
+  }
+
+  const shown = taskProjFilter.id ? d.tasks.filter(t => t.projectId === taskProjFilter.id) : d.tasks;
+  const list = $('#taskList');
+  // 过滤条：说清"正在只看某项目"并给一键清除
+  let filterBar = '';
+  if (taskProjFilter.id) {
+    filterBar = '<div class="task-filter">📁 只看项目「' + esc(taskProjFilter.name || taskProjFilter.id) + '」（' + shown.length + '/' + d.tasks.length + ' 条）'
+      + '<span class="sub proj-jump" id="taskFilterClear" style="cursor:pointer;margin-left:8px">显示全部 ✕</span></div>';
+  }
+  list.innerHTML = filterBar + shown.map(t => {
+    const running = !t.done && (t.running === true || t.status === 'running' || !!t.owner);
+    const blocked = !t.done && (t.blocked === true || t.status === 'blocked');
+    return '<div class="task' + (t.done ? ' done' : '') + (running ? ' running' : '') + (blocked ? ' blocked' : '') + (t.overdue ? ' overdue' : '') + '">' +
+    '<span class="task-check" data-id="' + t.id + '" title="点击完成">' + (t.done ? '✓' : '') + '</span>' +
+    '<span class="task-title">' + esc(t.title) + '</span>' +
+    (running ? '<span class="chip running">在跑</span>' : '') +
+    (blocked ? '<span class="chip blocked">受阻</span>' : '') +
+    (t.overdue ? '<span class="chip bad">已逾期</span>' : '') +
+    (t.claimedBy ? '<span class="chip owner">🔑 ' + esc(t.claimedBy) + '</span>' : '') +
+    (t.owner && !t.claimedBy ? '<span class="chip owner">🔑 ' + esc(t.role || '') + '</span>' : '') +
+    (t.projectName ? '<span class="chip proj" data-proj="' + t.projectId + '">📁 ' + esc(t.projectName) + '</span>' : '') +
+    (t.due ? '<span class="task-due">⏱ ' + esc(t.due) + '</span>' : '') +
+    (t.ref ? '<span class="chip" data-task-ref="' + esc(t.ref) + '">' + esc(t.ref) + '</span>' : '') +
+    // 指向性任务（第 3 条）带验收标准，让"做到什么算完成"在任务台直接可见
+    (t.accept ? '<div class="task-accept">验收：' + esc(t.accept) + '</div>' : '') +
+    '<span class="task-del" data-id="' + t.id + '" title="删除">🗑</span>' +
+    '</div>';
+  }).join('') || (taskProjFilter.id
+    // 过滤后为空 ≠ 没有任务。必须说清是筛出来的，否则用户会以为项目没任务
+    ? '<div class="sub" style="padding:16px">该项目名下当前没有任务（全局共 ' + d.tasks.length + ' 条）。'
+      + '<span class="proj-jump" style="cursor:pointer;margin-left:6px" id="taskFilterClear">显示全部</span></div>'
+    : '<div class="sub" style="padding:16px">暂无任务 — 对话中说 /task 要做什么 即可创建。</div>');
+  // 清除过滤器（两个位置都可能出现：过滤条 / 空态提示）
+  list.querySelectorAll('#taskFilterClear').forEach(x => x.onclick = () => { taskProjFilter = { id: '', name: '' }; refreshTasks(); });
+  list.querySelectorAll('.chip.proj').forEach(x => x.onclick = () => filterTasksByProject(x.dataset.proj, ''));
+  list.querySelectorAll('.task-check').forEach(x => x.onclick = async () => {
+    await api('/v1/tasks', { method: 'PATCH', body: JSON.stringify({ id: x.dataset.id, patch: { done: true } }) });
+    refreshTasks();
+  });
+  list.querySelectorAll('.task-del').forEach(x => x.onclick = async () => {
+    await api('/v1/tasks', { method: 'DELETE', body: JSON.stringify({ id: x.dataset.id }) });
+    refreshTasks();
+  });
+  autoscroll(list);
+}
+// 认领全部未分配任务：把 goalpilot/决策直接建的、还没接上人的活一把认领进"在跑"
+async function claimAllPending() {
+  const r = await api('/v1/tasks/claim', { method: 'POST' });
+  if (r.ok) {
+    const n = (r.assigned || []).length;
+    toast(r.error ? ('认领：' + (r.reason || '无待认领')) : (n ? '已认领 ' + n + ' 项任务，进入在跑' : '没有待认领任务'), n ? 'ok' : '');
+  } else toast('认领失败：' + (r.error || '未知错误'), 'bad');
+  refreshTasks();
+}
+$('#taskForm') && $('#taskForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  await api('/v1/tasks', { method: 'POST', body: JSON.stringify({ title: $('#taskTitle').value, due: $('#taskDue').value, ref: 'manual' }) });
+  $('#taskTitle').value = ''; $('#taskDue').value = '';
+  toast('任务已创建', 'ok');
+  refreshTasks();
+});
+
+// ===== 专家会诊 =====
+$('#agentGoBtn') && ($('#agentGoBtn').onclick = async () => {
+  const q = $('#agentQ').value.trim();
+  if (!q) return toast('先输入要会诊的问题', 'bad');
+  const but = $('#agentGoBtn');
+  but.textContent = '会诊中…'; but.disabled = true;
+  $('#agentResult').textContent = '专家正在独立分析…';
+  try {
+    const d = await api('/v1/agents/consult', { method: 'POST', body: JSON.stringify({ agent: $('#agentSel').value, question: q, depth: $('#agentDepth').checked, lang: $('#langSel').value }) });
+    if (d.ok) {
+      $('#agentResult').textContent = '【' + d.agent.name + ' · ' + d.engine + '】\n' + d.content;
+      toast('会诊完成，已写入决策中心', 'ok');
+      refreshDecisions();
+    } else $('#agentResult').textContent = '会诊失败：' + (d.error || d.msg || '未知错误');
+  } catch (e) { $('#agentResult').textContent = '网络异常：' + e.message; }
+  but.textContent = '开始会诊'; but.disabled = false;
+});
+
+// ===== 知识库 =====
+async function refreshKn() {
+  const d = await api('/v1/knowledge');
+  if (!d.ok) return;
+  $('#knCount').textContent = '共 ' + (d.stats ? d.stats.total : d.knowledge.length) + ' 条';
+  fillKn(d.knowledge);
+}
+function fillKn(list) {
+  const box = $('#knList');
+  box.innerHTML = list.length ? list.map(k =>
+    '<div class="kn-item"><span class="kn-del" data-id="' + esc(k.id) + '">✕</span>' +
+    '<div class="kn-q">Q: ' + esc(k.q) + '</div>' +
+    '<div class="kn-a">A: ' + esc(k.a) + '</div></div>'
+  ).join('') : '<div class="sub">知识库为空 — 用 /knowledge 问题 | 答案 沉淀。</div>';
+  box.querySelectorAll('.kn-del').forEach(x => x.onclick = async () => {
+    await api('/v1/knowledge', { method: 'DELETE', body: JSON.stringify({ id: x.dataset.id }) });
+    refreshKn();
+  });
+  autoscroll(box);
+}
+$('#knSearchBtn') && ($('#knSearchBtn').onclick = async () => {
+  const q = $('#knQ').value.trim();
+  const d = await api('/v1/knowledge' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  if (d.ok) fillKn(q ? d.knowledge : d.knowledge);
+});
+$('#knAddBtn') && ($('#knAddBtn').onclick = async () => {
+  const q = $('#knAddQ').value.trim(), a = $('#knAddA').value.trim();
+  if (!q || !a) return toast('问题与答案都要填', 'bad');
+  await api('/v1/knowledge', { method: 'POST', body: JSON.stringify({ q, a }) });
+  $('#knAddQ').value = ''; $('#knAddA').value = '';
+  toast('知识已沉淀', 'ok');
+  refreshKn();
+});
+
+// ===== 审计日志 =====
+let auditCache = [];
+async function refreshAudit() {
+  const d = await api('/v1/audit?limit=200');
+  if (!d.ok) return;
+  auditCache = d.audit;
+  fillAudit(auditCache);
+}
+function fillAudit(rows) {
+  const f = $('#auditFilter').value;
+  const filtered = f ? rows.filter(r => r.action === f) : rows;
+  $('#auditBody').innerHTML = filtered.map(r =>
+    '<tr><td>' + esc(fmt(r.at)) + '</td><td>' + esc(r.action) + '</td><td>' + esc(r.detail || '') + '</td></tr>'
+  ).join('');
+  autoscroll($('.audit-box'));
+  // 动作筛选候选（去重）
+  const opts = [...new Set(auditCache.map(r => r.action))];
+  const cur = $('#auditFilter');
+  cur.innerHTML = '<option value="">全部动作</option>' + opts.map(a => '<option' + (a === f ? ' selected' : '') + '>' + esc(a) + '</option>').join('');
+}
+$('#auditFilter') && $('#auditFilter').addEventListener('change', () => fillAudit(auditCache));
+$('#auditQ') && $('#auditQ').addEventListener('input', debounce(() => {
+  const kw = $('#auditQ').value.trim();
+  fetch('/v1/audit?limit=300&q=' + encodeURIComponent(kw)).then(r => r.json()).then(d => {
+    if (d.ok) { auditCache = d.audit; fillAudit(auditCache); }
+  }).catch(() => {});
+}, 300));
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); }; }
+
+// ===== 动画 AI 陪伴角色（表情随对话状态切换）=====
+const BUDDY_STATE = new Map();
+let buddyTimer = null;
+function buddy(state, note) {
+  const b = $('#buddy');
+  if (!b) return;
+  if (buddyTimer) { clearTimeout(buddyTimer); buddyTimer = null; }
+  b.dataset.state = state;
+  if (note) {
+    $('#buddyNote').textContent = note;
+    const n = $('#buddyNote');
+    n.style.animation = 'none'; n.offsetHeight; n.style.animation = '';
+  }
+  // 自动回到待命（talk/happy 自动回 idle）
+  if (state === 'talk' || state === 'happy') {
+    buddyTimer = setTimeout(() => { b.dataset.state = 'idle'; }, state === 'talk' ? 3800 : 4200);
+  }
+}
+// 快捷提问 chips
+const BUDDY_CHIPS = ['帮我梳理今天做什么', '我的决策中心能做什么', '给一个行业人才招聘建议', '生成一个技术方案框架', '汇报当前系统水位'];
+function regenChips() {
+  const w = $('#buddyChips');
+  if (!w) return;
+  w.innerHTML = BUDDY_CHIPS.map(c => '<span class="buddy-chip">' + esc(c) + '</span>').join('');
+  w.querySelectorAll('.buddy-chip').forEach((x, i) => x.onclick = () => {
+    $('#chatInput').value = BUDDY_CHIPS[i];
+    send();
+  });
+}
+
+// ===== 决策框架库（50+ 方法论）=====
+let FWS = [];
+let FW_CATS = [];
+function renderFrameworks() {
+  const catSel = $('#fwCat');
+  const cf = catSel ? catSel.value : 'all';
+  const list = cf === 'all' ? FWS : FWS.filter(f => f.cat === cf);
+  const sel = $('#fwSel');
+  const prev = sel.value;
+  sel.replaceChildren();
+  list.forEach(f => {
+    const o = document.createElement('option');
+    o.value = f.id;
+    o.textContent = f.emoji + ' ' + f.name + '（' + (cf === 'all' ? f.cat : '') + '）';
+    sel.appendChild(o);
+  });
+  if (prev && list.some(f => f.id === prev)) sel.value = prev;
+  const g = $('#fwGrid');
+  if (!g) return;
+  const byCat = {};
+  list.forEach(f => { (byCat[f.cat] = byCat[f.cat] || []).push(f); });
+  g.innerHTML = Object.keys(byCat).map(cat =>
+    '<div class="sub" style="grid-column:1/-1;margin-top:6px">◈ ' + esc(cat) + '（' + byCat[cat].length + '）</div>' +
+    byCat[cat].map(f => '<div class="fw-item" data-id="' + f.id + '" title="' + esc(f.desc) + '"><b>' + esc(f.emoji) + ' ' + esc(f.name) + '</b><span>' + esc(f.desc) + '</span></div>').join('')
+  ).join('');
+  g.querySelectorAll('.fw-item').forEach(x => x.onclick = () => {
+    $('#fwSel').value = x.dataset.id;
+    $('#fwTopic').focus();
+    toast('已选中框架，填入主题即可应用', 'ok');
+  });
+}
+async function refreshFrameworks() {
+  const d = await api('/v1/decisions/frameworks');
+  if (!d.ok) return;
+  FWS = d.frameworks;
+  FW_CATS = [...new Set(FWS.map(f => f.cat))];
+  $('#fwCount').textContent = '共 ' + d.stats.total + ' 个方法论 · ' + FW_CATS.join(' / ');
+  const catSel = $('#fwCat');
+  if (catSel) {
+    catSel.innerHTML = '<option value="all">全部领域</option>' + FW_CATS.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+    renderFrameworks();
+  }
+}
+$('#fwCat') && ($('#fwCat').addEventListener('change', () => renderFrameworks()));
+// 智能推荐：输入主题 → AI 推荐最适合的框架（决策中心实时自适应）
+$('#fwTopic') && $('#fwTopic').addEventListener('input', debounce(async () => {
+  const topic = $('#fwTopic').value.trim();
+  if (topic.length < 3) { $('#fwSuggest').hidden = true; return; }
+  const d = await api('/v1/decisions/suggest?topic=' + encodeURIComponent(topic));
+  if (!d.ok || !d.suggest || !d.suggest.picks.length) return;
+  const box = $('#fwSuggest');
+  box.hidden = false;
+  box.innerHTML = '<span class="sub">✨ 智能推荐（按话题语义）</span>' +
+    d.suggest.picks.map(p =>
+      '<button class="btn ghost small suggest-fw" data-id="' + p.id + '">' + p.emoji + ' ' + esc(p.name) + ' · ' + esc(p.cat) + '</button>'
+    ).join('') +
+    (d.suggest.matched ? '' : ' <span class="sub">（未匹配到常见话题，默认推荐通用框架）</span>');
+  box.querySelectorAll('.suggest-fw').forEach(b => b.onclick = () => {
+    $('#fwSel').value = b.dataset.id;
+    toast('已选智能推荐框架，点「应用框架」即得结构化决策', 'ok');
+  });
+}, 400));
+$('#fwGo') && ($('#fwGo').onclick = async () => {
+  const fw = $('#fwSel').value, topic = $('#fwTopic').value.trim();
+  if (!fw) return toast('先选一个框架', 'bad');
+  $('#fwResult').hidden = false;
+  $('#fwResult').textContent = '正在应用 ' + fw + ' 框架…';
+  try {
+    const d = await api('/v1/decisions/apply', { method: 'POST', body: JSON.stringify({ framework: fw, topic }) });
+    if (d.ok) {
+      $('#fwResult').textContent = d.decision.content;
+      $('#fwProjectBtnWrap').hidden = false;
+      $('#fwProjectHint').textContent = '决策已落地，点击上方按钮自动创建项目 + 派发任务';
+      toast('框架已应用并沉淀到决策中心', 'ok');
+      refreshDecisions();
+    } else $('#fwResult').textContent = '应用失败：' + d.error;
+  } catch (e) { $('#fwResult').textContent = '网络异常：' + e.message; }
+});
+$('#fwProjectBtn') && ($('#fwProjectBtn').onclick = async () => {
+  $('#fwProjectBtn').disabled = true;
+  $('#fwProjectBtn').textContent = '正在创建项目…';
+  $('#fwProjectHint').textContent = '';
+  try {
+    const d = await api('/v1/projects/from-decision', { method: 'POST', body: JSON.stringify({}) });
+    if (d.ok) {
+      $('#fwProjectBtn').textContent = '✅ 项目已创建：' + d.project.name;
+      $('#fwProjectHint').textContent = '里程碑 ' + d.milestones.length + ' 个 · 任务 ' + d.taskCount + ' 个 · 派工 ' + d.claimed + ' 人 · 可去「项目管理」跟踪进度';
+      toast('决策已转项目：' + d.project.name + '（' + d.milestones.length + ' 里程碑，' + d.taskCount + ' 任务）', 'ok');
+      switchTab('project');
+    } else {
+      $('#fwProjectBtn').disabled = false;
+      $('#fwProjectBtn').textContent = '🚀 一键立项';
+      $('#fwProjectHint').textContent = '创建失败：' + d.error;
+      toast('立项失败：' + d.error, 'bad');
+    }
+  } catch (e) {
+    $('#fwProjectBtn').disabled = false;
+    $('#fwProjectBtn').textContent = '🚀 一键立项';
+    $('#fwProjectHint').textContent = '网络异常：' + e.message;
+    toast('网络异常：' + e.message, 'bad');
+  }
+});
+$('#fwTopic') && $('#fwTopic').addEventListener('keydown', e => { if (e.key === 'Enter') $('#fwGo').click(); });
+
+// ===== 24h 自主运营面板 =====
+// ===== 多 Agent 协作网（第 10 条）=====
+// 关键：会商结果必须如实展示"谁参与了、谁失败了、为什么失败"。
+// 不把失败藏起来——否则用户以为 3 个 Agent 都答了，实际只有 1 个。
+function renderMBackends(b) {
+  const g = $('#amBackends');
+  if (!g || !b) return;
+  $('#amCount').textContent = b.counts.total;
+  g.innerHTML = b.backends.map(x =>
+    '<div class="am-card t-' + x.type + '">'
+    + '<div class="am-h"><b>' + esc(x.label) + '</b><span class="am-type">' + esc({ channel: '模型通道', cli: '本机 CLI', expert: '角色专家' }[x.type] || x.type) + '</span></div>'
+    + '<div class="am-m">' + esc(x.model || '') + '</div>'
+    + '<div class="am-s">' + esc(x.strength) + '</div></div>').join('');
+  $('#amNote').textContent = b.honest;
+}
+function renderDebate(d) {
+  const box = $('#amDebateOut');
+  if (!box || !d) return;
+  let h = '<div class="am-dbt-meta">参与 ' + d.participants.length + ' · 成功 ' + d.results.length
+    + ' · 失败 ' + d.failedCount + ' · 耗时 ' + (d.ms / 1000).toFixed(1) + 's</div>';
+  h += '<div class="am-dbt-c">分歧度：<b>' + (d.diverged === null ? '不足 2 个有效回答，不计算' : d.diverged + '%') + '</b>'
+    + '　共识关键词：<b>' + (d.consensus.length ? esc(d.consensus.join(' ')) : '无') + '</b></div>';
+  h += '<div class="am-dbt-list">';
+  d.participants.forEach(p => {
+    h += '<div class="am-dbt-i ' + (p.ok ? 'ok' : 'no') + '">'
+      + '<span class="am-dbt-n">' + esc(p.label) + '</span>'
+      + '<span class="am-dbt-s">' + (p.ok ? (p.ms + 'ms') : esc(String(p.error || '').slice(0, 70))) + '</span></div>';
+  });
+  h += '</div>';
+  if (d.results.length) {
+    h += '<div class="am-dbt-res">';
+    d.results.forEach(r => {
+      h += '<div class="am-dbt-r"><b>' + esc(r.label) + '</b><div>' + esc(String(r.content).slice(0, 600)) + '</div></div>';
+    });
+    h += '</div>';
+  }
+  box.innerHTML = h;
+}
+async function refreshAgentMesh() {
+  const d = await api('/v1/agentmesh');
+  if (d.ok) renderMBackends(d.board);
+  const p = await api('/v1/agentmesh/packs');
+  if (p.ok) {
+    $('#amPackN').textContent = p.total;
+    $('#amPackF').textContent = p.found;
+    if (p.refreshing && !(p.packs || []).length) {
+      // 后台检索（48 个 GitHub 来源）不可能在浏览器 15s 超时内完成：
+      // 如实显示「正在后台检索」，而不是拿空列表让人以为「网上没有」。
+      $('#amPacks').innerHTML = '<div class="text-muted" style="padding:6px 0">'
+        + esc(p.note || '正在后台检索技能包（GitHub 串行查询较慢）…稍后刷新即可看到结果。') + '</div>';
+    } else {
+    $('#amPacks').innerHTML = p.packs.slice(0, 24).map(x =>
+      '<div class="am-pack' + (x.loaded ? ' loaded' : '') + '">'
+      + '<span class="am-pack-r">' + esc(x.repo) + '</span>'
+      + '<span class="am-pack-s">★' + x.stars + '</span>'
+      + '<span class="am-pack-l">' + esc(x.label) + '</span>'
+      + '<button class="btn ghost small" data-pack="' + esc(x.repo) + '" data-pname="' + esc(x.repo.split('/').pop()) + '">'
+      + (x.loaded ? '已收录' : '装载') + '</button></div>').join('');
+    $$('#amPacks [data-pack]').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const r = await api('/v1/agentmesh/pack/load', { method: 'POST', body: JSON.stringify({ repo: b.dataset.pack, name: b.dataset.pname }) });
+        toast(r.added ? '技能包已收录：' + b.dataset.pack : '已在库中', 'ok');
+        refreshAgentMesh();
+      } catch (e) { toast('装载失败：' + (e.message || e), 'bad'); b.disabled = false; }
+    });
+    }
+  }
+}
+$('#amDebate') && ($('#amDebate').onclick = async () => {
+  const q = ($('#amQ').value || '').trim();
+  if (!q) { toast('先写下要会商的问题', 'bad'); return; }
+  const btn = $('#amDebate');
+  btn.disabled = true; btn.textContent = '🗣️ 会商中…（真并发）';
+  try {
+    const d = await api('/v1/agentmesh/debate', { method: 'POST', body: JSON.stringify({ question: q, taskType: $('#amTask').value, n: 3 }) });
+    renderDebate(d.debate);
+  } catch (e) { toast('会商失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '🗣️ 开始会商';
+});
+$('#amRefresh') && ($('#amRefresh').onclick = () => refreshAgentMesh());
+
+// ===== 全媒体运营（第 11 条）=====
+function renderPub(b) {
+  const s = $('#pubStats');
+  if (s) s.innerHTML =
+    '<div class="stat"><div class="stat-v">' + b.content + '</div><div class="stat-l">内容</div></div>'
+    + '<div class="stat"><div class="stat-v">' + b.queue + '</div><div class="stat-l">队列</div></div>'
+    + '<div class="stat"><div class="stat-v">' + b.feedback7d + '</div><div class="stat-l">近7天反馈</div></div>'
+    + '<div class="stat"><div class="stat-v">' + b.orders7d + '</div><div class="stat-l">近7天订单</div></div>'
+    + '<div class="stat"><div class="stat-v ok">¥' + b.orderValue + '</div><div class="stat-l">订单金额</div></div>';
+  const n = $('#pubNote');
+  if (n) n.textContent = b.honest;
+  const pl = $('#pubPlatforms');
+  if (pl) pl.innerHTML = b.platforms.map(p =>
+    '<div class="pub-plat' + (p.hasCred ? ' ok' : '') + '">'
+    + '<div class="pub-plat-h"><b>' + esc(p.name) + '</b><span class="pub-plat-s">' + (p.hasCred ? '凭证已配' : '缺 ' + p.missing.join('/')) + '</span></div>'
+    + '<div class="pub-plat-f"><label class="check-inline"><input type="checkbox" data-autopub="' + esc(p.id) + '"' + (p.autoPublish ? ' checked' : '') + '><span>自动发布</span></label>'
+    + '<label class="check-inline"><input class="ipt" style="width:100px" data-credkey="' + esc(p.id) + '" placeholder="' + esc(p.missing[0] || '凭证') + '"><button class="btn ghost small" data-savecred="' + esc(p.id) + '">存</button></label></div></div>').join('');
+  $$('#pubPlatforms [data-autopub]').forEach(x => x.onchange = async () => {
+    const r = await api('/v1/publish/auto', { method: 'POST', body: JSON.stringify({ platform: x.dataset.autopub, on: x.checked }) });
+    toast(x.checked ? ('⚠️ ' + r.platform + ' 已开启自动发布') : (r.platform + ' 自动发布已关闭'), x.checked ? 'bad' : 'ok');
+  });
+  $$('#pubPlatforms [data-savecred]').forEach(btn => btn.onclick = async () => {
+    const p = btn.dataset.savecred;
+    const inp = $('#pubPlatforms [data-credkey="' + p + '"]');
+    if (!inp || !inp.value) { toast('先填凭证值', 'bad'); return; }
+    const def = (b.platforms.find(x => x.id === p) || {});
+    const key = (def.missing && def.missing[0]) || 'token';
+    const r = await api('/v1/publish/credentials', { method: 'POST', body: JSON.stringify({ platform: p, key, value: inp.value }) });
+    toast(r.ok ? '已保存 ' + p + '.' + key + (r.complete ? '（已完整）' : '（仍缺其他项）') : r.error, r.ok ? 'ok' : 'bad');
+    inp.value = '';
+    refreshPublisher();
+  });
+  const q = $('#pubQueue');
+  if (q) q.innerHTML = b.queue ? '' : '<div class="text-muted" style="padding:8px 0">队列为空</div>';
+}
+async function refreshPublisher() {
+  const d = await api('/v1/publish/queue');
+  if (!d || !d.ok) return;
+  renderPub(d);
+  // 队列明细
+  const items = await api('/v1/publish/queue');
+  const box = $('#pubQueue');
+  if (box && items && items.byState) {
+    // 两条发布途径的分开显示：自动 published 与运营者 manual_published 不合并
+    const src = [
+      ['自动发布', d.publishedAuto], ['手动发布', d.publishedManual]
+    ].filter(x => x[1]).map(x => x.join(' ')).join(' · ');
+    const st = { awaiting_confirm: '待确认', queued: '就绪', blocked_no_cred: '缺凭证', confirmed: '已确认', published: '已发布', manual_published: '已手动发', awaiting_adapter: '待接适配器' };
+    box.innerHTML = '<div class="sub" style="margin-top:8px">状态分布：'
+      + Object.keys(items.byState).map(k => st[k] + ' ' + items.byState[k]).join(' · ')
+      + (src ? '<span style="margin-left:10px">' + src + '</span>' : '') + '</div>';
+  }
+}
+$('#pubManualBtn') && ($('#pubManualBtn').onclick = async () => {
+  const itemId = ($('#pubManualId') && $('#pubManualId').value || '').trim();
+  const url = ($('#pubManualUrl') && $('#pubManualUrl').value || '').trim();
+  const note = ($('#pubManualNote') && $('#pubManualNote').value || '').trim();
+  if (!itemId) { toast('填队列 ID', 'bad'); return; }
+  if (!url && !note) { toast('必须具备核验依据（链接或说明），不能空登记', 'bad'); return; }
+  try {
+    const r = await api('/v1/publish/manual-release', { method: 'POST', body: JSON.stringify({ itemId, evidenceUrl: url, note }) });
+    if (!r.ok) return toast(r.error || '登记失败', 'bad');
+    toast(r.note || '已登记手动发布', 'ok');
+    $('#pubManualId').value = $('#pubManualUrl').value = $('#pubManualNote').value = '';
+    refreshPublisher();
+  } catch (e) { toast('登记失败：' + (e.message || e), 'bad'); }
+});
+$('#pubKwSave') && ($('#pubKwSave').onclick = async () => {
+  const kws = ($('#pubKw').value || '').split(/[,，\s]+/).filter(Boolean);
+  const r = await api('/v1/publish/keywords', { method: 'POST', body: JSON.stringify({ keywords: kws }) });
+  toast('已保存 ' + r.keywords.length + ' 个关键词', 'ok');
+});
+$('#pubHarvest') && ($('#pubHarvest').onclick = async () => {
+  const btn = $('#pubHarvest');
+  btn.disabled = true; btn.textContent = '🌐 抓取中…';
+  try {
+    const r = await api('/v1/publish/harvest', { method: 'POST', body: JSON.stringify({}) });
+    $('#pubHarvestOut').textContent = r.ok
+      ? ('关键词 ' + JSON.stringify(r.keywords) + ' → 命中 ' + r.found + ' 条' + (r.hits && r.hits.length ? '：' + r.hits.slice(0, 3).map(h => h.repo || h.title).join('；') : ''))
+      : ('未执行：' + r.reason + '（需 ' + r.need + '）');
+  } catch (e) { $('#pubHarvestOut').textContent = '抓取失败：' + (e.message || e); }
+  btn.disabled = false; btn.textContent = '🌐 全网抓取';
+});
+$('#pubEnq') && ($('#pubEnq').onclick = async () => {
+  const title = ($('#pubTitle').value || '').trim();
+  if (!title) { toast('先写标题', 'bad'); return; }
+  const body = ($('#pubBody').value || '').trim();
+  const d = await api('/v1/publish/platforms');
+  const targets = d.filter(p => p.hasCred).map(p => p.id);
+  if (!targets.length) { toast('还没有任何平台配好凭证（先在上方填凭证），无法入队', 'bad'); return; }
+  const btn = $('#pubEnq');
+  btn.disabled = true; btn.textContent = '处理中…';
+  try {
+    // 顺序：先建内容 → 拿到 contentId → 再入队。
+    // 【修掉的 bug】初版直接拿 (await queue()).lastContentId 当 contentId，
+    // 而 board() 里根本没有这个字段 → contentId 是 undefined → 入队必然失败。
+    const c = await api('/v1/publish/content', { method: 'POST', body: JSON.stringify({ kind: 'text', title, body }) });
+    if (!c.ok) throw new Error(c.error || '内容创建失败');
+    const e = await api('/v1/publish/enqueue', { method: 'POST', body: JSON.stringify({ contentId: c.content.id, platforms: targets }) });
+    if (!e.ok) throw new Error(e.error || '入队失败');
+    toast('已入队 ' + e.items.length + ' 项（' + e.items.filter(i => i.state === 'awaiting_confirm').length + ' 待确认）', 'ok');
+    $('#pubTitle').value = ''; $('#pubBody').value = '';
+    refreshPublisher();
+  } catch (err) {
+    toast('入队失败：' + (err.message || err), 'bad');
+  }
+  btn.disabled = false; btn.textContent = '加入队列';
+});
+
+async function refreshAutopilot() {
+  refreshPublisher();   // 第 11 条：全媒体运营面板
+  refreshMHub();
+  const d = await api('/v1/autopilot/status');
+  if (!d.ok) return;
+  const enabled = d.enabled !== false;
+  rollCount($('#autoRound'), d.roundNo);
+  $('#autoState').textContent = d.running ? '运行中' : (enabled ? '待命' : '已暂停');
+  const sec = Math.max(0, Math.round((d.nextInMs || 0) / 1000));
+  $('#autoNext').textContent = enabled ? (Math.floor(sec / 60) + '分' + (sec % 60) + '秒' + (d.backoff > 1 ? '（退避×' + d.backoff + '）' : '')) : '—';
+  $('#autoLogN').textContent = d.logLen;
+  $('#autoWheel') && d.wheel && ($('#autoWheel').textContent = d.wheel.done + '/' + d.wheel.total);
+  $('#autoOk') && ($('#autoOk').textContent = d.reliability ? d.reliability.okPct + '%' : '–');
+
+  // 启停按钮 + 节奏选择
+  const tg = $('#autoToggleBtn');
+  if (tg) { tg.textContent = enabled ? '⏸ 暂停托管' : '▶ 恢复托管'; tg.className = 'btn ' + (enabled ? 'ghost' : 'primary'); }
+  const iv = $('#autoInterval');
+  if (iv && d.intervalSec) {
+    const opt = Array.prototype.find.call(iv.options, o => Number(o.value) === Number(d.intervalSec));
+    if (!opt) { const o = document.createElement('option'); o.value = String(d.intervalSec); o.textContent = '每 ' + Math.round(d.intervalSec / 60) + ' 分钟'; iv.appendChild(o); }
+    iv.value = String(d.intervalSec);
+  }
+
+  // 降级/停机告警
+  const al = $('#autoAlert');
+  if (al) {
+    const msgs = [];
+    if (!enabled) msgs.push('⏸ 自主运营已暂停（后台不再自动执行），点「恢复托管」继续。');
+    if (d.degraded) msgs.push('⚠ 降级运行：连续失败 ' + d.consecFails + ' 轮' + (d.backoff > 1 ? '，已退避到 ' + d.effectiveSec + 's 一轮' : '') + '。' + (d.lastError || ''));
+    al.hidden = !msgs.length;
+    al.textContent = msgs.join('\n');
+  }
+  if (d.last) {
+    const h = d.last.health || {};
+    $('#autoLast').textContent =
+      '末尾时间 ' + fmt(d.last.at) + ' · 耗时 ' + d.last.ms + 'ms\n' +
+      '水位：' + (Object.keys(h).map(k => k + ' ' + h[k]).join(' ｜ ') || '—') + '\n' +
+      '本轮动作：\n' + (d.last.done && d.last.done.length ? d.last.done.map(x => '  ✓ ' + x).join('\n') : '  （本轮无外部动作）') + '\n' +
+      '优化建议：' + ((d.last.advises || []).map(x => '· ' + x).join('\n') || '—');
+  }
+  renderAutoSteps(d);
+  const lg = await api('/v1/autopilot/log?n=15');
+  if (lg.ok) {
+    $('#autoLog').innerHTML = lg.log.map(r =>
+      '<div class="auto-item"><h4>#' + r.no + ' · ' + fmt(r.at) + '（' + r.ms + 'ms）</h4>' +
+      '<pre>' + ((r.done || []).map(x => '✓ ' + x).join('\n') || '本轮无外部动作') + '</pre></div>'
+    ).join('') || '<div class="sub">尚无运营轮次 — 点「立即跑一轮」开始。</div>';
+    autoscroll($('#autoLog'));
+  }
+  if (d.wheel) refreshModules().catch(() => {});
+  renderModGrid();
+}
+$('#autoRunBtn') && ($('#autoRunBtn').onclick = async () => {
+  const b = $('#autoRunBtn'); b.disabled = true; b.textContent = '运行中…';
+  await api('/v1/autopilot/run', { method: 'POST' });
+  b.disabled = false; b.textContent = '▶ 立即跑一轮';
+  toast('自主运营已执行一轮', 'ok');
+  refreshAutopilot();
+  refreshDecisions();
+});
+$('#autoStatusBtn') && ($('#autoStatusBtn').onclick = refreshAutopilot);
+
+// ===== 24h 自主运营·功能模块库（56 真实模块：列表/搜索/单点执行）=====
+let MODS = [];
+async function refreshModules() {
+  const d = await api('/v1/autopilot/modules');
+  if (!d.ok) return;
+  MODS = d.modules || [];
+  $('#modTotal') && ($('#modTotal').textContent = '56 真实模块 · 已覆盖 ' + d.progress.done + '/' + d.progress.total);
+}
+function renderModGrid() {
+  const kw = ($('#modKw') && $('#modKw').value || '').trim();
+  const list = MODS.filter(m => !kw || (m.id + m.name + m.cat + m.desc).toLowerCase().includes(kw.toLowerCase()));
+  const grid = $('#modGrid');
+  if (!grid) return;
+  grid.innerHTML = list.map(m =>
+    '<div class="mod-card" data-id="' + m.id + '" title="' + esc(m.desc) + '">' +
+    '<b>' + esc(m.name) + '<span class="mod-cat">' + esc(m.cat) + '</span></b>' +
+    '<span>' + esc(m.desc) + '</span></div>'
+  ).join('') || '<div class="sub">无匹配模块。</div>';
+  grid.querySelectorAll('.mod-card').forEach(c => {
+    c.onclick = async () => {
+      const id = c.dataset.id;
+      const mr = $('#modResult');
+      mr.hidden = false;
+      mr.textContent = '运行模块「' + c.querySelector('b').childNodes[0].textContent.trim() + '」…';
+      try {
+        const r = await api('/v1/autopilot/modules/' + id + '/run', { method: 'POST' });
+        mr.textContent = (r.ok ? r.output : ('执行失败：' + r.error));
+        mr.scrollTop = 0;
+      } catch (e) { mr.textContent = '网络异常：' + e.message; }
+    };
+  });
+}
+$('#modKw') && ($('#modKw').addEventListener('input', renderModGrid));
+
+// ===== 行业人才库（组织大脑升级：100+ 各行各业）=====
+async function refreshTalents() {
+  const d = await api('/v1/talents');
+  if (!d.ok) return;
+  const prev = $('#industryRow');
+  if (prev) prev.remove();
+  const row = document.createElement('div');
+  row.className = 'industry-import';
+  row.id = 'industryRow';
+  row.innerHTML =
+    '<span class="tag violet" style="align-self:center">行业人才库 ' + d.total + ' 岗位</span>' +
+    d.industries.map(i => '<span class="buddy-chip" data-ind="' + i.id + '">' + i.emoji + ' ' + i.name + '</span>').join('') +
+    '<span class="buddy-chip on" data-ind="all" style="color:#fff;background:var(--accent)">全部行业导入</span>';
+  row.querySelectorAll('.buddy-chip').forEach(x => x.onclick = async () => {
+    const ind = x.dataset.ind;
+    const n = prompt(ind === 'all' ? '一键导入所有行业（每个岗位 1 名，共 ' + d.total + ' 人）。每人数量：' : '导入「' + x.textContent.trim() + '」——每个岗位几人？', '1');
+    const per = Math.max(1, parseInt(n, 10) || 1);
+    const r = await api('/v1/talents/import', { method: 'POST', body: JSON.stringify({ industry: ind, perJob: per }) });
+    if (r.ok) { toast('已导入 ' + r.added + ' 名行业人才', 'ok'); refreshOrg(); }
+    else toast('导入失败：' + r.error, 'bad');
+  });
+  document.querySelector('#tab-org .pane-head').insertAdjacentElement('afterend', row);
+}
+
+// ===== 组织大脑：人才自选配置（AI 建议仅供参考，数量用户自定）=====
+let TC = []; // [{industry, industryName, role, desc, count}]
+let TALL = [];
+async function loadTalentsData() {
+  const d = await api('/v1/talents');
+  if (d.ok) { TALL = d.industries || []; refreshTcIndustry(); }
+}
+function refreshTcIndustry() {
+  const sel = $('#tcIndustry');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="all">全部行业</option>' + TALL.map(i => '<option value="' + i.id + '">' + i.emoji + ' ' + i.name + '</option>').join('');
+  if (TALL.some(i => i.id === cur)) sel.value = cur;
+}
+function renderTc() {
+  const box = $('#tcConfig');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!TC.length) {
+    box.innerHTML = '<div class="sub" style="padding:8px 0;color:var(--muted)">配置为空 —— 点「获取 AI 建议配置」，或选行业＋数量「加入配置」后手工调整。</div>';
+    $('#tcImportBtn').disabled = true;
+    return;
+  }
+  $('#tcImportBtn').disabled = false;
+  TC.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'tc-row';
+    row.innerHTML =
+      '<span class="tc-role">' + esc(c.industryName + ' · ' + c.role) + '</span>' +
+      '<span class="sub">' + esc(c.desc || '') + '</span>' +
+      '<button class="btn ghost small tc-minus">−</button>' +
+      '<span class="tc-n">' + c.count + '</span>' +
+      '<button class="btn ghost small tc-plus">＋</button>' +
+      '<span class="sub">人</span>' +
+      '<button class="btn ghost small danger tc-del" title="移除">✕</button>';
+    row.querySelector('.tc-minus').onclick = () => { c.count = Math.max(0, c.count - 1); if (c.count === 0) TC.splice(i, 1); renderTc(); };
+    row.querySelector('.tc-plus').onclick = () => { c.count = Math.min(20, c.count + 1); renderTc(); };
+    row.querySelector('.tc-del').onclick = () => { TC.splice(i, 1); renderTc(); };
+    box.appendChild(row);
+  });
+  $('#tcNote').textContent = '共 ' + TC.reduce((s, c) => s + c.count, 0) + ' 人 —— 点「按我的配置导入」生成真实员工（数量完全是你定的）。';
+}
+$('#tcSuggestBtn') && ($('#tcSuggestBtn').onclick = async () => {
+  $('#tcSuggestBtn').textContent = '生成中…';
+  const d = await api('/v1/talents/suggest?target=' + ($('#tcCount').value || 12));
+  $('#tcSuggestBtn').textContent = '✨ 获取 AI 建议配置';
+  if (d.ok) {
+    TC = (d.config || []).map(c => Object.assign({}, c));
+    toast('已载入 AI 建议方案（' + TC.reduce((s, c) => s + c.count, 0) + ' 人），可自由修改', 'ok');
+    renderTc();
+  } else toast('获取失败：' + d.error, 'bad');
+});
+$('#tcAddRow') && ($('#tcAddRow').onclick = async () => {
+  const ind = $('#tcIndustry').value;
+  const cnt = Math.max(0, Math.min(20, parseInt($('#tcCount').value, 10) || 1));
+  if (!cnt) return toast('数量需 ≥ 1', 'bad');
+  const inds = ind === 'all' ? TALL : TALL.filter(i => i.id === ind);
+  if (!inds.length) return toast('请先选行业', 'bad');
+  inds.forEach(i => i.jobs.forEach(j => { TC.push({ industry: i.id, industryName: i.name, role: j.role, desc: j.desc, count: cnt }); }));
+  toast('加入 ' + inds.length + '×' + inds[0].jobs.length + ' 个岗位，每人 ' + cnt + ' 名', 'ok');
+  renderTc();
+});
+$('#tcImportBtn') && ($('#tcImportBtn').onclick = async () => {
+  if (!TC.length) return toast('配置为空', 'bad');
+  const config = TC.map(c => ({ industry: c.industry, role: c.role, count: c.count }));
+  const r = await api('/v1/talents/import', { method: 'POST', body: JSON.stringify({ config }) });
+  if (r.ok) { toast('按你的配置导入 ' + r.added + ' 名员工', 'ok'); TC = []; renderTc(); refreshOrg(); }
+  else toast('导入失败：' + r.error, 'bad');
+});
+// 员工技能实时进化
+$('#evolveSkillBtn') && ($('#evolveSkillBtn').onclick = async () => {
+  $('#evolveSkillBtn').textContent = '同步中…';
+  const r = await api('/v1/org/skills/evolve', { method: 'POST', body: JSON.stringify({}) });
+  $('#evolveSkillBtn').textContent = '⚡ 员工技能进化';
+  if (r.ok) { toast('员工技能已进化（' + r.updated + ' 名更新，热词：' + (r.hotSkills || []).slice(0, 3).join('/') + '）', 'ok'); refreshOrg(); }
+  else toast('进化失败：' + (r.error || '未知'), 'bad');
+});
+// === 隐藏功能入口：harness 运行监控面板 ===
+  $('#harnessSampleBtn') && ($('#harnessSampleBtn').onclick = async () => {
+    const h = harness.status();
+    // 计算采纳率：采纳 / (采纳 + 拒绝 + 跳过 + 样本不足)
+    const totalDecisions = h.adopted + h.rejectedByCritic + h.skipped + h.notAdopted;
+    const adoptRate = totalDecisions > 0 ? (h.adopted / totalDecisions * 100).toFixed(1) + '%' : 'N/A';
+    const rejectRate = totalDecisions > 0 ? (h.rejectedByCritic / totalDecisions * 100).toFixed(1) + '%' : 'N/A';
+    const skipRate = totalDecisions > 0 ? (h.skipped / totalDecisions * 100).toFixed(1) + '%' : 'N/A';
+    const insufficientRate = totalDecisions > 0 ? (h.notAdopted / totalDecisions * 100).toFixed(1) + '%' : 'N/A';
+
+    // 最近运行详情
+    const runs = h.recent.slice(0, 10).map(r => ({
+      round: r.round, result: r.result, reason: r.reason.slice(0, 80),
+      baseScore: r.baseScore, candScore: r.candScore, at: r.at
+    }));
+
+    // KPI 关联统计（从前端存储 KPI_HISTORY 中读取）
+    let kpiMsg = '';
+    try {
+      const storedKPI = window.KPI_HISTORY || [];
+      const refundRate = storedKPI.length > 0
+        ? ((storedKPI.reduce((sum, r) => sum + r.refunded, 0) / storedKPI.reduce((sum, r) => sum + r.realized + r.refunded, 0) * 100) || 0).toFixed(1) + '%'
+        : '0%';
+      kpiMsg = '\nKPI 趋势（最近 ' + storedKPI.length + ' 次）: 退款率 ' + refundRate + ' │ 实收均值 ' + (storedKPI.reduce((s,r)=>s+r.realized,0)/storedKPI.length || 0).toFixed(0) + ' │ 外币 Pending ' + (storedKPI.filter(r=>r.foreignPending>0).length || 0) + ' 例';
+    } catch (e) { kpiMsg = ''; }
+
+    let msg = 'Harness 运行监控面板：\n';
+    msg += '━━━━━━━━━━━━━━━━━━━━━━━\n';
+    msg += '总运行次数: ' + h.totalRuns + '\n';
+    msg += '│ 采纳率: ' + adoptRate + ' │ 拒绝率: ' + rejectRate + '\n';
+    msg += '│ 跳过率: ' + skipRate + ' │ 样本不足: ' + insufficientRate + '\n';
+    msg += '━━━━━━━━━━━━━━━━━━━━━━━\n';
+    msg += '最近 10 次运行:\n';
+    if (runs.length > 0) {
+      runs.forEach(r => {
+        msg += '  [' + r.result + '] 轮 ' + r.round + ' @ ' + new Date(r.at).toLocaleString() +
+          ' | 分数: ' + r.baseScore + '/' + r.candScore + ' | ' + r.reason + '\n';
+      });
+    } else {
+      msg += '  暂无运行记录\n';
+    }
+    msg += '━━━━━━━━━━━━━━━━━━━━━━━\n';
+    msg += '样本数: ' + (h.totalRuns - h.skipped) + ' (≥5 条可正式评测)' + kpiMsg;
+    msg += '\n点此重新加载';
+    toast(msg, 'ok');
+  });
+  
+  // 【前置】确保 store 有 messages 数据，否则 harness 无法建立评测集
+  // 演示用：若 messages 不足，此处可选择是否补齐
+  if (!$('#harnessSampleBtn')) {
+    const toolbar = $('#brain .toolbar');
+    if (toolbar) {
+      const newBtn = document.createElement('button');
+      newBtn.id = 'harnessSampleBtn';
+      newBtn.className = 'btn ghost';
+      newBtn.style.marginLeft = '8px';
+      newBtn.textContent = '📊 harness样本';
+      toolbar.appendChild(newBtn);
+    }
+  }
+  
+  loadTalentsData();
+
+// ===== 技能军械库：全部技能可执行 =====
+let SK = null, skFilter = 'all';
+async function refreshSkills() {
+  const kw = $('#skQ').value.trim();
+  const d = await api('/v1/skills' + (kw ? '?q=' + encodeURIComponent(kw) : ''));
+  if (!d.ok) return;
+  SK = d;
+  $('#skTotal').textContent = d.total;
+  // 分类 chips：保留原逻辑（按 /v1/skills 的真实分类筛内置技能）
+  const cats = Object.keys(d.byCat || {});
+  $('#skFilter').innerHTML = '<span class="sk-chip' + (skFilter === 'all' ? ' on' : '') + '" data-c="all">全部</span>' +
+    cats.map(c => '<span class="sk-chip' + (skFilter === c ? ' on' : '') + '" data-c="' + c + '">' + (d.catNames[c] || c) + '(' + d.byCat[c] + ')</span>').join('');
+  $$('#skFilter .sk-chip').forEach(x => x.onclick = () => { skFilter = x.dataset.c; refreshSkills(); });
+  renderSkGrid();
+  refreshSkillspace();   // 第 9 条：分类/边界/可信度面板
+}
+
+// —— 技能军械库中枢（第 9 条）——
+// 四层结构：用途速查 → 库容可信度 → 边界重叠告警。
+// 边界重叠**显式列出**而不是偷偷藏起来：用户需要知道"为什么按分类找不到它"。
+function refreshSkillspace() {
+  return api('/v1/skillspace').then(d => {
+    const c = d.categorize;
+    const cl = $('#skClusters');
+    if (cl) cl.innerHTML = d.clusters.map(u =>
+      '<div class="sk-uc"><div class="sk-uc-h">' + esc(u.key) + '<span class="sk-uc-n">' + u.count + ' 项</span></div>'
+      + '<div class="sk-uc-hint">' + esc(u.hint) + '</div>'
+      + '<div class="sk-uc-items">' + u.items.slice(0, 6).map(i => '<span class="sk-uc-i' + (i.verified ? ' v' : '') + '">' + esc(i.name) + '</span>').join('') + '</div></div>'
+    ).join('');
+
+    const tr = $('#skTrust');
+    if (tr) tr.innerHTML =
+      '<div class="stat"><div class="stat-v">' + c.total + '</div><div class="stat-l">技能总数</div></div>'
+      + '<div class="stat"><div class="stat-v ok">' + c.builtin + '</div><div class="stat-l">内置（可直接调）</div></div>'
+      + '<div class="stat"><div class="stat-v">' + c.external + '</div><div class="stat-l">外部收录</div></div>'
+      + '<div class="stat"><div class="stat-v bad">' + c.unverified + '</div><div class="stat-l">未验证（仅参考）</div></div>'
+      + '<div class="stat"><div class="stat-v">' + c.cats.length + '</div><div class="stat-l">内置分类</div></div>'
+      + '<div class="stat"><div class="stat-v">' + c.domains.length + '</div><div class="stat-l">外部能力域</div></div>'
+      + (c.unclassifiedCount ? '<div class="stat"><div class="stat-v bad">' + c.unclassifiedCount + '</div><div class="stat-l">待归类</div></div>' : '')
+      + '<div class="sub" style="flex-basis:100%;margin-top:6px">' + esc(d.trust.note) + '</div>';
+
+    $('#skOverlapN').textContent = c.overlaps.length;
+    const ov = $('#skOverlaps');
+    if (ov) ov.innerHTML = c.overlaps.length
+      ? c.overlaps.slice(0, 20).map(o =>
+          '<div class="sk-ov"><b>' + esc(o.name) + '</b><span class="sk-ov-cat">分类「' + esc(o.cat) + '」</span>'
+          + '<span class="sk-ov-dom">实际命中 ' + o.domains.map(x => '<i>' + esc(x) + '</i>').join('') + '</span></div>').join('')
+      : '<div class="text-muted" style="padding:8px 0">未检测到边界重叠 ✓</div>';
+
+    // —— 覆盖体检（第 9 条深挖：把"哪儿没东西"摊开）——
+    // 之前只有重叠告警，覆盖缺口全是隐形的：零覆盖能力域被 filter 掉了，
+    // 待归类/无描述只有数字，用户不知道是哪几个、也就无从补。
+    const gp = d.gaps || {}, nm = d.nameless || {}, md = d.multiDomain || [], nd = d.nearDup || {};
+    const cov = $('#skCoverage');
+    if (cov) {
+      const domRow = (gp.domains || []).map(x =>
+        '<span class="sk-dom' + (x.count === 0 ? ' zero' : '') + '" title="外部 ' + x.count + ' 项 / 内置 ' + x.builtin + ' 项">'
+        + esc(x.key) + ' <b>' + x.count + '</b></span>').join('');
+      cov.innerHTML =
+        '<div class="sk-cov-h">能力域覆盖（外部技能数）</div><div class="sk-dom-row">' + domRow + '</div>'
+        + (gp.emptyDomains && gp.emptyDomains.length
+          ? '<div class="sk-warn">覆盖空洞：' + gp.emptyDomains.map(esc).join('、') + ' 域没有任何外部技能</div>'
+          : '<div class="sub sk-ok">6 个能力域均有外部技能覆盖 ✓</div>')
+        + (gp.thinCats && gp.thinCats.length
+          ? '<div class="sk-warn">形同虚设的分类（仅 1 项）：' + gp.thinCats.map(esc).join('、') + '</div>' : '')
+        + '<div class="sk-cov-h" style="margin-top:8px">重复收录（同名收了两遍）<span class="sk-uc-n">' + (nd.dupesTotal || 0) + '</span></div>'
+        + ((nd.dupes || []).length
+          ? nd.dupes.slice(0, 6).map(x =>
+              '<div class="sk-ov"><b>' + esc(x.a) + '</b><span class="sk-ov-dom">≤ ' + esc(x.b) + '</span>'
+              + '<span class="sk-src-line">' + esc(x.aSrc || '内置') + ' | ' + esc(x.bSrc || '内置') + '</span></div>').join('')
+          : '<div class="sub sk-ok">未发现同名重复收录 ✓</div>')
+        + '<div class="sk-cov-h" style="margin-top:8px">名称相近（启发式，需人工确认）<span class="sk-uc-n">' + (nd.similarTotal || 0) + '</span></div>'
+        + '<div class="sub" style="opacity:.75">' + esc(nd.note || '') + '</div>'
+        + '<div class="sk-cov-h" style="margin-top:8px">横跨多域的外部技能<span class="sk-uc-n">' + md.length + '</span></div>'
+        + (md.length
+          ? md.slice(0, 8).map(x =>
+              '<div class="sk-ov"><b>' + esc(x.name) + '</b><span class="sk-ov-dom">'
+              + x.domains.map(dm => '<i>' + esc(dm) + '</i>').join('') + ' → 归「' + esc(x.group) + '」</span></div>').join('')
+          : '<div class="sub sk-ok">无跨域歧义 ✓</div>')
+        + '<div class="sk-cov-h" style="margin-top:8px">待归类 / 缺描述<span class="sk-uc-n">' + (nm.unclassifiedTotal || 0) + ' / ' + (nm.noDescTotal || 0) + '</span></div>'
+        + '<div class="sub" style="opacity:.75">' + esc(nm.note || '') + '</div>'
+        + ((nm.unclassified || []).length
+          ? '<div class="sk-names">' + nm.unclassified.slice(0, 14).map(x =>
+              '<span class="sk-name-chip" title="' + esc(x.src || x.cat) + '">' + esc(x.name) + '</span>').join('')
+            + ((nm.unclassifiedTotal > 14) ? '<span class="sub">…还有 ' + (nm.unclassifiedTotal - 14) + ' 个</span>' : '') + '</div>'
+          : '<div class="sub sk-ok">全部技能都能归类 ✓</div>');
+    }
+  }).catch(() => {});
+}
+function renderSkGrid() {
+  const g = $('#skGrid');
+  const listBy = c => {
+    if (c === 'all') return [].concat(SK.builtin, SK.external, SK.template);
+    return [].concat(SK.builtin, SK.external, SK.template).filter(x => x[2] === c);
+  };
+  const norm = x => {
+    const kind = x[3] === '内置' ? 'builtin' : x[3] === 'template' ? 'template' : 'external';
+    let src;
+    if (kind === 'builtin') src = '内置 · 可执行';
+    else if (kind === 'template') src = '模板 · 拷贝即接入';
+    else if (x[4] === 'unverified') src = '外部 · 待核实来源 | ' + x[3];
+    else src = '外部 · 已验证 | ' + x[3];
+    return { id: x[0], name: x[1], kind, src };
+  };
+  const items = listBy(skFilter).map(norm);
+  const lab = { builtin: '可执行', external: '外部', template: '模板' };
+  const cls = { builtin: 'builtin', external: 'external', template: 'template' };
+  const runLabel = { builtin: '▶ 执行', external: '🚀 接入/执行', template: '⚙ 生成落地物' };
+  const runTip = { builtin: 'os', external: 'deploy=1 可真实克隆落地', template: '生成真实可用文件内容' };
+  const act = x =>
+    '<button class="btn ghost sk-run" data-id="' + x.id + '" data-name="' + esc(x.name) + '" data-kind="' + x.kind + '" title="' + runTip[x.kind] + '">' + runLabel[x.kind] + '</button>';
+  g.innerHTML = items.map(x =>
+    '<div class="sk-card"><div class="sk-name">' + esc(x.name) + '<span class="sk-status ' + cls[x.kind] + '">' + lab[x.kind] + '</span></div>' +
+    '<div class="sk-src">' + esc(x.src) + '</div>' +
+    '<div class="sk-actions">' + act(x) + '</div></div>'
+  ).join('') || '<div class="sub" style="grid-column:1/-1;padding:16px">无匹配技能。</div>';
+  g.querySelectorAll('.sk-run').forEach(b => b.onclick = () => openSkillInvoke(b.dataset.id, b.dataset.name, { kind: b.dataset.kind }));
+}
+// 技能执行弹窗
+let curSkill = null, curKind = null;
+function openSkillInvoke(id, name, opt) {
+  curSkill = id;
+  curKind = (opt && opt.kind) || '';
+  $('#askOverlay').hidden = false;
+  $('#askTitle').textContent = '执行技能：' + name;
+  const ph = curKind === 'builtin'
+    ? '参数（如：q=北京 或 text=这段内容值得评估…）'
+    : curKind === 'template'
+      ? '（模板类无需参数；如要个性化名称可用 name=myapp 等，直接点「执行」）'
+      : '外部技能：直接「执行」= 获取接入指引；\n填 deploy=1 并可选 dir=目标目录 → 真实 git clone 落地';
+  $('#askArgs').value = '';
+  $('#askArgs').placeholder = ph;
+  $('#askResult').hidden = true;
+}
+$('#askCancel') && ($('#askCancel').onclick = () => { $('#askOverlay').hidden = true; });
+$('#askGo') && ($('#askGo').onclick = async () => {
+  const raw = $('#askArgs').value.trim();
+  const args = {};
+  raw.split(/[;&\n]/).forEach(seg => {
+    seg = seg.trim(); if (!seg) return;
+    const i = seg.indexOf('=');
+    if (i > 0) args[seg.slice(0, i).trim()] = seg.slice(i + 1).trim();
+    else if (seg.startsWith('deploy')) args.deploy = '1';
+  });
+  $('#askResult').hidden = false;
+  $('#askResult').textContent = '执行中…';
+  try {
+    const d = await api('/v1/skills/' + curSkill + '/invoke', { method: 'POST', body: JSON.stringify(args) });
+    $('#askResult').textContent = (d.ok ? d.output : '失败：' + (d.error || d.msg || '未知错误')) + (d.elapsedMs ? '\n—— ' + d.elapsedMs + 'ms（' + d.source + '）' : '');
+    if (d.ok) toast('技能「' + curSkill + '」已执行', 'ok');
+  } catch (e) { $('#askResult').textContent = '网络异常：' + e.message; }
+});
+$('#skQ') && $('#skQ').addEventListener('input', debounce(refreshSkills, 300));
+
+// ===== 技能·全网发现（GitHub 检索 → 收录 → 下载，自我进化）=====
+$('#skDiscBtn') && ($('#skDiscBtn').onclick = async () => {
+  const cat = $('#skDiscCat').value;
+  const manual = $('#skDiscQ').value.trim();
+  const q = manual || cat;
+  if (!q) return toast('请输入检索关键词', 'bad');
+  $('#skDisc').hidden = false;
+  $('#skDiscList').innerHTML = '<div class="sub" style="padding:12px">正在全网检索「' + esc(q) + '」…</div>';
+  const d = await api('/v1/skills/discover?q=' + encodeURIComponent(q) + '&per=8', undefined, 45000);
+  if (!d.ok || !d.reach) { $('#skDiscList').innerHTML = '<div class="sub" style="padding:12px">检索不可达：' + esc(d.error || '网络受限') + '（可在设置配置 GITHUB_TOKEN 提升限流）</div>'; return; }
+  renderSkDisc(d.items, q, d.fallback);
+});
+function renderSkDisc(items, q, fallback) {
+  const box = $('#skDiscList');
+  box.innerHTML = (fallback ? '<div class="sub" style="color:#b45309">GitHub 搜索 API 暂不可达，已降级显示今日 Trending 仓库（同样可检视/收录/下载）</div>' : '') +
+    '<div class="panel-title">找到 ' + items.length + ' 个候选（共 ' + 0 + ' 匹配，按 ★ 排序）</div>'
+    .replace('（共 0 匹配', '（检索「' + esc(q) + '」');
+  items.forEach(x => {
+    const el = document.createElement('div');
+    el.className = 'sk-disc-card';
+    el.innerHTML =
+      '<div class="sk-name" style="margin-bottom:4px">🔗 ' + esc(x.repo) + ' <span class="chip running">★' + x.stars + '</span>' + (x.lang ? '<span class="chip">' + esc(x.lang) + '</span>' : '') + (x.archived ? '<span class="chip paused">已归档</span>' : '') + '</div>' +
+      '<div class="sk-src">' + esc((x.desc || '').slice(0, 90)) + '</div>' +
+      '<div class="sk-actions" style="margin-top:6px">' +
+      '<button class="btn ghost sk-run" data-a="inspect">👁 检视</button>' +
+      '<button class="btn ghost sk-run" data-a="inject">📥 收录</button>' +
+      '<button class="btn ghost sk-run" data-a="download">⬇ 下载</button>' +
+      '</div>';
+    el.querySelector('[data-a="inspect"]').onclick = async () => {
+      const r = await api('/v1/skills/inspect?repo=' + encodeURIComponent(x.repo));
+      if (!r.ok) { toast('检视失败：' + r.error, 'bad'); return; }
+      const files = (r.files || []).map(f => esc(f)).join(' · ');
+      toast('README 片段已获取', 'ok');
+      el.querySelector('.sk-src').textContent = '◆ ' + esc(r.repo) + ' ★' + r.stars + ' · ' + esc((r.desc || '').slice(0, 60)) + ' · 文件: ' + (files || '—');
+      const notes = document.createElement('div');
+      notes.className = 'sk-src';
+      notes.style.whiteSpace = 'pre-wrap';
+      notes.textContent = '—— README ——\n' + (r.readme || '（无 README）').slice(0, 600);
+      el.appendChild(notes);
+    };
+    el.querySelector('[data-a="inject"]').onclick = async () => {
+      const r = await api('/v1/skills/inject', { method: 'POST', body: JSON.stringify({ name: x.name, cat: 'agents', src: x.repo, confidence: 'unverified', claimed: true, note: '全网发现 ★' + x.stars }) });
+      if (r.ok) { toast((r.added ? '已收录「' + x.repo + '」' : '该仓库已收录过') + '，军械库已扩容', 'ok'); refreshSkills(); }
+      else toast('收录失败：' + r.error, 'bad');
+    };
+    el.querySelector('[data-a="download"]').onclick = async () => {
+      el.querySelector('[data-a="download"]').textContent = '下载中…';
+      const r = await api('/v1/skills/download', { method: 'POST', body: JSON.stringify({ repo: x.repo }) });
+      el.querySelector('[data-a="download"]').textContent = '⬇ 下载';
+      if (r.ok) toast('已下载到 ' + r.dir + '（' + r.size + ' 项）', 'ok');
+      else toast('下载失败：' + r.error, 'bad');
+    };
+    box.appendChild(el);
+  });
+  box.querySelectorAll('.panel-title')[0].textContent = '找到 ' + items.length + ' 个候选 · 检索「' + q + '」';
+}
+$('#skVerifyBtn') && ($('#skVerifyBtn').onclick = async () => {
+  const el = $('#skVerifyBtn');
+  const isForce = el.dataset.force === '1';
+  el.textContent = isForce ? '重测中（联网约 30s，最多 60s）…' : '核验中（联网，最多 60s）…';
+  $('#skDisc').hidden = false;
+  $('#skDiscList').innerHTML = '<div class="sub" style="padding:12px">正在逐源核验外部仓库可达性（100 源，最多 6 路并发）…</div>';
+  // 联网核验是"真慢"接口（本机实测可达 20s+），必须用长超时；
+  // 用默认 15s 会在服务端还在正常工作时就被前端打断，误报"连接服务器错误"。
+  const d = await api('/v1/skills/verify' + (isForce ? '?force=1' : ''), undefined, 60000);
+  el.textContent = '🧬 核验全部外部源';
+  if (!d.ok) { $('#skDiscList').innerHTML = '<div class="sub">核验失败</div>'; return; }
+  const s = d.summary || {};
+  const rows = (d.items || []).map(x =>
+    '<div class="sk-disc-card"><div class="sk-src">' + (x.status === 'ok' ? '✅' : x.status === 'archived' ? '🗄' : x.status === 'unknown' ? '❔' : '❌') + ' ' +
+    esc(x.repo || x.id) + ' — ' + esc(x.name || '') + '</div>' +
+    '<div class="sub">' + esc(x.reason || '') + (x.stars ? ' · ★' + x.stars : '') + (x.dynamic ? ' · 动态收录' : '') + '</div></div>'
+  ).join('');
+  const fresh = d.cached ? '（10 分钟内缓存，点「核验」可强刷等缓存或点按钮二次强制重测）' : '';
+  $('#skDiscList').innerHTML = '<div class="panel-title">核验完成：共 ' + d.total + ' 源 · ✅' + (s.ok || 0) + ' · 异常 ' + d.bad + '（🗄归档 ' + (s.archived || 0) + ' / ❌缺失 ' + (s.missing || 0) + '）· ⏸未知 ' + (s.unknown || 0) + ' / ⛽限流 ' + (s.limited || 0) + fresh + '</div>' + rows;
+  el.dataset.force = '1';
+});
+
+// ===== Agent 管理中心（paseo 编排联动） =====
+async function refreshAgents() {
+  refreshAgentMesh();   // 第 10 条：多 Agent 协作网（本 tab 的主体内容）
+  try {
+    // 先只取快的 /v1/agentcenter 渲染面板；daemon/列表较慢，各自独立加载，互不阻塞
+    const s = await api('/v1/agentcenter');
+    if (!s.ok) throw new Error(s.error || 'agentcenter 状态失败');
+    // 面板里并没有 #agRepo 这个节点（历史上删掉了，但赋值漏改），必须判空——
+    // 否则 refreshAgents 一进来就抛 TypeError，被下面的 catch 吃掉后整块面板
+    //（daemon 状态 / Agent 列表 / 协同 / 日志）全部加载不出来，只弹一句"载入失败"。
+    const repoEl = $('#agRepo');
+    if (repoEl) repoEl.textContent = s.repo;
+    const head = $('#agStatusHead');
+    head.textContent = '🌐 paseo 编排状态 · ' + (s.installed ? '已落地 v' + (s.version || '') + ' · daemon 探测中…' : '未落地');
+    const st = $('#agStatus');
+    st.hidden = false;
+    st.textContent = s.installed
+      ? '已落地：' + s.version + '\n源码获取：' + (s.sourceAt ? fmt(s.sourceAt) : '—') + '\n运行时：' + s.runtimeDir + '\ndaemon 端口：' + s.daemonPort
+      : (s.daemon || '未落地') + '\n' + (s.hint || '') + '\n\n点击「📥 从 GitHub 下载 paseo」开始落地（下载源码 + 装运行时，可能需要几分钟）。';
+    $('#agInstall') && ($('#agInstall').textContent = s.installed ? '🔄 重新落地（升级）' : '📥 从 GitHub 下载 paseo');
+    // daemon 状态较慢：单独探测，完成后回填标题
+    api('/v1/agentcenter/daemon/status').then(dv => {
+      const daemonTxt = dv.ok ? (dv.running ? '运行中' : '未运行') : '状态未知';
+      head.textContent = '🌐 paseo 编排状态 · ' + (s.installed ? '已落地 v' + (s.version || '') + ' · daemon ' + daemonTxt : '未落地');
+    }).catch(() => {});
+    refreshAgentsList();
+    refreshCoop();
+    refreshAgLog();
+  } catch (e) { toast('Agent 管理中心载入失败：' + e.message, 'bad'); }
+}
+
+async function refreshAgentsList() {
+  const el = $('#agAgents');
+  el.hidden = false;
+  el.textContent = '⏳ 正在向 paseo 查询 Agent 列表（首次查询可能需要 30–60 秒）…';
+  // paseo CLI 可能耗时较久，这里用宽松超时（90s），不被 api() 的 15s 打断
+  let d;
+  try {
+    const ctrl = new AbortController();
+    const tmr = setTimeout(() => ctrl.abort(), 90000);
+    const r = await fetch('/v1/agentcenter/agents', { headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal });
+    clearTimeout(tmr);
+    d = await r.json();
+  } catch (e) {
+    el.textContent = 'Agent 列表查询超时或失败：' + (e.name === 'AbortError' ? '查询超过 90 秒，paseo daemon 可能未就绪' : e.message);
+    $('#agAgentsHead').textContent = '🤖 已联动 Agent（查询超时）';
+    return;
+  }
+  if (!d.ok) { el.textContent = 'Agent 列表不可用：' + (d.error || 'paseo 未就绪'); $('#agAgentsHead').textContent = '🤖 已联动 Agent（—）'; return; }
+  const list = d.agents || [];
+  $('#agAgentsHead').textContent = '🤖 已联动 Agent（' + list.length + '）';
+  el.textContent = list.length
+    ? list.map(a => (a.shortId || a.id || '—') + '  ' + (a.title || a.name || '未命名') + '  [' + (a.provider || '—') + ']  ' + (a.status || '—') + '  ' + (a.cwd || '') + '  ' + (a.created || '')).join('\n')
+    : '暂无可联动 Agent —— daemon 运起后用「🚀 创建并运行」拉起一个，或填入已有 Agent ID 直接指挥。';
+}
+
+async function refreshCoop() {
+  const d = await api('/v1/agentcenter/coop?limit=30');
+  const el = $('#agCoop');
+  el.hidden = false;
+  el.textContent = d.ok && d.log && d.log.length
+    ? d.log.map(r => fmt(r.at) + '  [' + (r.kind || 'coop') + ']  ' + (r.agentId ? '#' + r.agentId + ' ' : '') + (r.detail || '')).join('\n')
+    : '暂无协同操作 —— 每次 run / send / stop 都会在这里留下联动联调流水。';
+}
+
+async function refreshAgLog() {
+  const d = await api('/v1/agentcenter/log?limit=20');
+  const el = $('#agLog');
+  el.hidden = false;
+  el.textContent = d.ok && d.log && d.log.length
+    ? d.log.map(r => fmt(r.at) + '  ' + (r.msg || '')).join('\n')
+    : '落地日志为空——尚未执行过任何落地/联动操作。';
+}
+
+$('#agRefresh') && ($('#agRefresh').onclick = refreshAgents);
+$('#agInstall') && ($('#agInstall').onclick = async () => {
+  const btn = $('#agInstall');
+  btn.disabled = true; btn.textContent = '⏳ 落地中…';
+  const d = await api('/v1/agentcenter/install', { method: 'POST' });
+  btn.disabled = false;
+  if (d.ok) { toast('paseo 落地成功 v' + (d.version || ''), 'ok'); }
+  else toast('落地失败：' + (d.error || '无权限（需本机或管理令牌）'), 'bad');
+  refreshAgents();
+});
+$('#agDaemonStart') && ($('#agDaemonStart').onclick = async () => {
+  const d = await api('/v1/agentcenter/daemon/start', { method: 'POST' });
+  toast(d.ok ? 'daemon 启动成功' : 'daemon 启动失败：' + (d.error || ''), d.ok ? 'ok' : 'bad');
+  refreshAgents();
+});
+$('#agDaemonRestart') && ($('#agDaemonRestart').onclick = async () => {
+  const d = await api('/v1/agentcenter/daemon/restart', { method: 'POST' });
+  toast(d.ok ? 'daemon 已重启' : 'daemon 重启失败：' + (d.error || ''), d.ok ? 'ok' : 'bad');
+  refreshAgents();
+});
+$('#agDaemonStop') && ($('#agDaemonStop').onclick = async () => {
+  const d = await api('/v1/agentcenter/daemon/stop', { method: 'POST' });
+  toast(d.ok ? 'daemon 已停止' : 'daemon 停止失败：' + (d.error || ''), d.ok ? 'ok' : 'bad');
+  refreshAgents();
+});
+
+function agShowOut(d) {
+  const el = $('#agActionOut');
+  el.hidden = false;
+  el.textContent = d && d.ok ? JSON.stringify(d, null, 2) : ('失败：' + ((d && d.error) || JSON.stringify(d)));
+}
+
+// ===== 作战指挥塔（目标缺口驱动 · 24h 联调执行） =====
+// ===== 作战数据底座前端（第 12 条指挥塔 / 第 13 条战情室 / 守护智慧库）=====
+// 三个页面共用 /v1/warboard 的同一份数据 —— 这正是后端做单一事实源的目的：
+// 用户在三个页面看到的数字必须一致，口径不一是最伤信任的。
+const STATUS_CN = { ok: '正常', warn: '注意', bad: '异常' };
+
+function renderWModules(list) {
+  const box = $('#wbModules');
+  if (!box || !list) return;
+  box.innerHTML = list.map(m =>
+    '<div class="wb-card ' + m.status + '">'
+    + '<div class="wb-dot"></div>'
+    + '<div class="wb-body"><div class="wb-label">' + esc(m.label) + '<span class="wb-st">' + (STATUS_CN[m.status] || m.status) + '</span></div>'
+    + '<div class="wb-val">' + esc(m.value) + '</div>'
+    + (m.note ? '<div class="wb-note">' + esc(m.note) + '</div>' : '')
+    + '</div></div>'
+  ).join('');
+}
+function renderWAdvice(list) {
+  const box = $('#wbAdvice');
+  if (!box || !list) return;
+  if (!list.length) { box.innerHTML = '<div class="wb-ok">✓ 当前无异常，按既定节奏推进</div>'; return; }
+  box.innerHTML = list.map((a, i) =>
+    '<div class="wb-adv ' + a.sev + '">'
+    + '<div class="wb-adv-t"><span class="wb-adv-i">' + (i + 1) + '</span>' + esc(a.title)
+    + '<span class="wb-sev ' + a.sev + '">' + (a.sev === 'high' ? '高' : a.sev === 'mid' ? '中' : '低') + '</span></div>'
+    + '<div class="wb-adv-r"><b>依据</b>' + esc(a.why) + '</div>'
+    + '<div class="wb-adv-r"><b>动作</b>' + esc(a.action) + '</div>'
+    + '</div>'
+  ).join('');
+}
+function renderWisdom(w) {
+  const box = $('#wisList');
+  if (!box || !w) return;
+  $('#wisTotal').textContent = w.strategies.length;
+  $('#wisMatched').textContent = w.matched.length;
+  const cats = {};
+  w.strategies.forEach(s => { (cats[s.cat] || (cats[s.cat] = [])).push(s); });
+  box.innerHTML = Object.keys(cats).map(c =>
+    '<div class="wis-cat">' + esc(c) + '</div>'
+    + cats[c].map(s => {
+      const on = w.matched.indexOf(s.id) >= 0;
+      return '<div class="wis-item' + (on ? ' on' : '') + '">'
+        + '<div class="wis-t">' + (on ? '▶ ' : '') + esc(s.name) + (on ? '<span class="wis-now">此刻适用</span>' : '') + '</div>'
+        + '<div class="wis-r"><b>适用</b>' + esc(s.when) + '</div>'
+        + '<div class="wis-r"><b>动作</b>' + esc(s.do) + '</div>'
+        + '<div class="wis-r"><b>判据</b>' + esc(s.judge) + '</div>'
+        + '</div>';
+    }).join('')
+  ).join('');
+}
+
+// —— 手绘图表（零依赖）——
+// 不引第三方图表库：打包体积小、离线可用、样式跟随主题。
+// 一共两个图：分组柱状（营收 / 学习堆叠）与横向条形（漏斗）。
+function drawBars(cv, series, opt) {
+  const o = opt || {};
+  if (!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const padL = 52, padB = 26, padT = 12, padR = 8;
+  const cw = W - padL - padR, ch = H - padB - padT;
+  const labels = series.map(s => s.label);
+  const stacks = o.stacks || [{ key: 'v', color: 'rgba(59,130,246,.75)' }];
+  let max = 0;
+  series.forEach(s => {
+    let t = 0; stacks.forEach(k => t += Number(s[k.key] || 0));
+    if (t > max) max = t;
+  });
+  if (max <= 0) {
+    ctx.fillStyle = 'rgba(150,150,160,.75)';
+    ctx.font = '13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(o.emptyText || '暂无数据', W / 2, H / 2);
+    return;
+  }
+  // 网格 + y 轴刻度
+  ctx.strokeStyle = 'rgba(150,150,160,.16)';
+  ctx.fillStyle = 'rgba(150,150,160,.7)';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'right';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ch - (ch * i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillText(Math.round(max * i / 4), padL - 6, y + 3);
+  }
+  const bw = cw / Math.max(1, series.length);
+  const inner = Math.max(2, bw * 0.62);
+  series.forEach((s, si) => {
+    let acc = 0;
+    const x = padL + bw * si + (bw - inner) / 2;
+    stacks.forEach(k => {
+      const v = Number(s[k.key] || 0);
+      if (v <= 0) return;
+      const h = (v / max) * ch;
+      const y = padT + ch - h - acc;
+      ctx.fillStyle = k.color;
+      ctx.fillRect(x, y, inner, h);
+      acc += h;
+    });
+    ctx.fillStyle = 'rgba(150,150,160,.7)';
+    ctx.textAlign = 'center';
+    if (series.length <= 20 || si % 2 === 0) ctx.fillText(String(labels[si]).slice(0, 8), x + inner / 2, H - 8);
+  });
+  // 图例
+  let lx = padL;
+  ctx.textAlign = 'left';
+  ctx.font = '11px system-ui';
+  stacks.forEach(k => {
+    ctx.fillStyle = k.color;
+    ctx.fillRect(lx, padT - 2, 10, 10);
+    ctx.fillStyle = 'rgba(200,200,210,.85)';
+    ctx.fillText(k.label, lx + 14, padT + 7);
+    lx += 20 + ctx.measureText(k.label).width + 14;
+  });
+}
+function drawHBars(cv, rows, opt) {
+  const o = opt || {};
+  if (!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!rows || !rows.length) {
+    ctx.fillStyle = 'rgba(150,150,160,.75)';
+    ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(o.emptyText || '暂无数据', W / 2, H / 2);
+    return;
+  }
+  const max = Math.max.apply(null, rows.map(r => Number(r.value) || 0)) || 1;
+  const rowH = Math.min(30, (H - 10) / rows.length);
+  rows.forEach((r, i) => {
+    const y = 6 + i * rowH;
+    const w = ((Number(r.value) || 0) / max) * (W - 190);
+    ctx.fillStyle = 'rgba(150,150,160,.8)';
+    ctx.font = '12px system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(String(r.name).slice(0, 8), 4, y + rowH / 2 + 4);
+    ctx.fillStyle = o.color || 'rgba(16,185,129,.7)';
+    ctx.fillRect(88, y + 4, Math.max(2, w), rowH - 10);
+    ctx.fillStyle = 'rgba(200,200,210,.9)';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(r.value), W - 4, y + rowH / 2 + 4);
+  });
+}
+
+function renderWarCharts(c) {
+  if (!c) return;
+  drawBars($('#warRev'), c.revenue.map(r => ({ label: r.day, v: r.settled, p: r.pending })), {
+    stacks: [{ key: 'v', label: '已结算实收', color: 'rgba(16,185,129,.75)' }, { key: 'p', label: '待到账', color: 'rgba(245,158,11,.7)' }],
+    emptyText: '近 14 天无任何收款记录'
+  });
+  const st = c.revenue.reduce((a, r) => ({ s: a.s + r.settled, p: a.p + r.pending }), { s: 0, p: 0 });
+  $('#warRevNote').textContent = '近 14 天：已结算 ¥' + Math.round(st.s) + ' · 待到账 ¥' + Math.round(st.p);
+
+  drawHBars($('#warFunnel'), c.funnel, { emptyText: '暂无线索数据' });
+  $('#warFunnelNote').textContent = c.funnel.length ? '合计 ' + c.funnel.reduce((a, f) => a + f.value, 0) + ' 条线索' : '';
+
+  const tp = $('#warTaskPie');
+  if (tp) tp.innerHTML = c.taskPie.length
+    ? c.taskPie.map((p, i) => '<div class="wb-card ' + ['ok', 'warn', 'bad', 'warn'][i % 4] + '"><div class="wb-body">'
+        + '<div class="wb-label">' + esc(p.name) + '</div><div class="wb-val">' + p.value + '</div></div></div>').join('')
+    : '<div class="text-muted">暂无任务</div>';
+
+  const ppl = $('#warPeople');
+  if (ppl) ppl.innerHTML = c.people.length ? c.people.map(p =>
+    '<div class="wb-person"><div class="wb-person-h"><b>' + esc(p.name) + '</b>'
+    + '<span class="wb-chip">在办 ' + p.doing + '</span><span class="wb-chip ok">完成 ' + p.done + '</span></div>'
+    + (p.titles.length ? '<div class="wb-person-t">' + p.titles.map(t => '· ' + esc(t)).join('<br>') + '</div>' : '<div class="wb-person-t sub">当前无在办任务</div>')
+    + '</div>').join('')
+    : '<div class="text-muted" style="padding:8px 0">暂无认领记录（任务尚未派工）</div>';
+
+  const sc = $('#warScene');
+  if (sc) sc.innerHTML = c.scene.length ? c.scene.slice(0, 30).map(s =>
+    '<div class="wb-scene-i"><span class="wb-scene-t">' + new Date(s.at).toLocaleTimeString() + '</span>'
+    + '<span class="wb-scene-a">' + esc(s.action) + '</span>'
+    + '<span class="wb-scene-d">' + esc(s.detail) + '</span></div>').join('')
+    : '<div class="text-muted" style="padding:8px 0">近 24h 无审计事件</div>';
+
+  // 学习趋势按模块堆叠：取条目最多的 5 个模块做图例
+  const mods = {};
+  c.learnTrend.forEach(d => Object.keys(d.mods || {}).forEach(m => { mods[m] = (mods[m] || 0) + d.mods[m]; }));
+  const top = Object.keys(mods).sort((a, b) => mods[b] - mods[a]).slice(0, 5);
+  const COLORS = ['rgba(59,130,246,.75)', 'rgba(16,185,129,.7)', 'rgba(245,158,11,.7)', 'rgba(168,85,247,.7)', 'rgba(239,68,68,.7)'];
+  drawBars($('#warLearn'), c.learnTrend.map(d => {
+    const o = { label: d.day }; top.forEach(m => o['m' + m] = (d.mods && d.mods[m]) || 0); return o;
+  }), { stacks: top.map((m, i) => ({ key: 'm' + m, label: m, color: COLORS[i] })), emptyText: '近 14 天无学习产出' });
+}
+
+// 三个页面的刷新入口都从这里走，保证口径一致
+function refreshWarboard() {
+  return api('/v1/warboard').then(d => {
+    const s = d.snapshot;
+    renderWModules(s.modules);
+    renderWAdvice(s.advisories);
+    renderWisdom(s.wisdom);
+    renderWarCharts(s.charts);
+  }).catch(() => {});
+}
+
+// ===== 空状态兜底（第 8 轮深化：空数据空页面）=====
+// 【问题】系统有 18 个 tab、29 个 panel，但很多容器在数据为空时**什么都不显示**——
+// 用户看到一片白，无法区分"没数据"和"坏了"。实测 tab-kpi 的 6 个容器里只有 2 个
+// 有"暂无"提示，其余 4 个空着。
+// 【做法】不是给每个容器手写"暂无"（加一个容器就多一处遗漏），而是做一层**全局兜底**：
+//   1. MutationObserver 盯着所有内容容器
+//   2. 某个容器渲染完仍然为空 → 自动填入带操作指引的空状态
+//   3. 用户点了面板里的按钮、容器被填充 → 兜底自动撤掉
+// 这样新增面板不需要额外维护，空状态永远不会漏。
+const EMPTY_CONTAINER_SEL = '[id$="Panel"],[id$="Box"],[id$="List"],[id$="Grid"],[id$="Out"],[id$="Table"]';
+const EMPTY_HINT = {
+  default: { t: '暂无数据', d: '这块还没有内容。可以先用上面的按钮生成，或在「智能对话」里直接说一句话让我来创建。' }
+};
+let _emptyObserver = null;
+function fillEmptyState(el) {
+  if (!el || el.dataset.emptyFilled === '1') return;
+  // 已经有内容就不动（避免覆盖真实渲染）
+  if (el.textContent.trim().length > 0) return;
+  const h = EMPTY_HINT.default;
+  el.innerHTML = '<div class="empty-state"><div class="empty-t">' + h.t + '</div><div class="empty-d">' + h.d + '</div></div>';
+  el.dataset.emptyFilled = '1';
+}
+function sweepEmptyStates(root) {
+  $$(EMPTY_CONTAINER_SEL, root || document).forEach(el => {
+    // 有些容器是弹窗/隐藏面板，隐藏的也填——切过去时就不会闪白
+    fillEmptyState(el);
+  });
+}
+function installEmptyGuard() {
+  if (_emptyObserver) return;
+  _emptyObserver = new MutationObserver(muts => {
+    let relevant = false;
+    muts.forEach(m => {
+      m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) relevant = true;
+      });
+    });
+    if (!relevant) return;
+    // 有新增节点 → 说明刚被填充，撤掉之前的兜底
+    requestAnimationFrame(() => {
+      $$(EMPTY_CONTAINER_SEL).forEach(el => {
+        if (el.textContent.trim().length > 0 && el.dataset.emptyFilled === '1') {
+          delete el.dataset.emptyFilled;
+          el.innerHTML = el.innerHTML.replace(/<div class="empty-state">[\s\S]*?<\/div><\/div>/g, '');
+        } else fillEmptyState(el);
+      });
+    });
+  });
+  _emptyObserver.observe(document.body, { childList: true, subtree: true });
+  sweepEmptyStates();
+}
+
+// ===== 空数据 seeding：让"空"变成"有意义" =====
+// 一些集合天生为空（orchTrace / sopJobs / orcaJobs / blackboards）——
+// 它们是**运行后才产生**的历史数据，空是正常的，但界面必须解释清楚。
+// 这里给这些面板一句"这块会记录什么、什么时候会有内容"，避免用户以为坏了。
+const EXPLANATIONS = [
+  { sel: '#orchList', when: 'empty', text: '还没有执行记录。选一种架构 + 写个任务，点「▶ 执行」就会出现在这里。' },
+  { sel: '#orchCmds', when: 'empty', text: '控制命令加载中；若持续为空说明 /v1/arch/commands 接口异常。' },
+  { sel: '#orchLearn', when: 'empty', text: '学习样本为空。执行几次编排后，这里会按任务特征统计出「哪种架构更可靠」。' },
+  { sel: '#orcaRecent', when: 'empty', text: '还没有派工。在上面输入任务点「入队」，再点「执行队列」。' },
+  { sel: '#orcaJobs', when: 'empty', text: '暂无后台作业。可用于跑长任务（SOP / 链路编排），进度会持续更新。' },
+  { sel: '#musJobs', when: 'empty', text: '还没有生成过音乐。设好 BPM / 调式 / 进行后点「🎼 生成」。' },
+  { sel: '#gmJobs', when: 'empty', text: '还没有构建过游戏。写下点子后点「🎮 构建」。' },
+  { sel: '#pubQueue', when: 'empty', text: '发布队列为空。要先在平台区填好凭证，内容才能入队。' }
+];
+function applyExplanations() {
+  EXPLANATIONS.forEach(x => {
+    const el = $(x.sel);
+    if (!el) return;
+    if (el.textContent.trim().length > 0) return;   // 已有内容不加
+    if (el.dataset.explained === '1') return;
+    el.innerHTML = '<div class="empty-state"><div class="empty-t">暂无</div><div class="empty-d">' + esc(x.text) + '</div></div>';
+    el.dataset.explained = '1';
+  });
+}
+// 一个桌面指挥所有编码 AI。控制层关心五件事：队列、状态、并发、成本归因、后台作业。
+function renderOrca(b, jobs) {
+  const q = b.queue || {};
+  const bs = q.byStatus || {};
+  $('#orcaExecN').textContent = (b.execs || []).length;
+  const st = $('#orcaStats');
+  if (st) st.innerHTML =
+    '<div class="stat"><div class="stat-v">' + (q.total || 0) + '</div><div class="stat-l">队列</div></div>'
+    + '<div class="stat"><div class="stat-v">' + (q.running || 0) + '</div><div class="stat-l">执行中</div></div>'
+    + '<div class="stat"><div class="stat-v">' + (bs.degraded || 0) + '</div><div class="stat-l">降级</div></div>'
+    + '<div class="stat"><div class="stat-v">' + ((bs.failed || 0)) + '</div><div class="stat-l">失败</div></div>'
+    + '<div class="stat"><div class="stat-v ' + (q.utilization > 80 ? 'bad' : 'ok') + '">' + (q.utilization || 0) + '%</div><div class="stat-l">槽位利用率 ' + q.slots + '/' + q.maxSlots + '</div></div>'
+    + '<div class="stat"><div class="stat-v">' + ((b.stats && b.stats.avgLatency) || '-') + '</div><div class="stat-l">平均耗时ms</div></div>';
+  const ex = $('#orcaExecs');
+  if (ex) ex.innerHTML = (b.execs || []).map(e =>
+    '<div class="orca-exec t-' + e.type + '">'
+    + '<div class="orca-e-h"><b>' + esc(e.label) + '</b><span class="orca-e-t">' + esc({channel:'通道',cli:'CLI',expert:'专家'}[e.type]||e.type) + '</span></div>'
+    + '<div class="orca-e-s">' + esc(e.strength || '') + '</div>'
+    + '<div class="orca-e-m">负载 ' + e.load + ' · 完成 ' + e.done + ' · 失败 ' + e.failed
+    + ' · 成功率 ' + (e.successRate === null ? '—' : e.successRate + '%')
+    + ' · 均耗 ' + (e.avgMs === null ? '—' : e.avgMs + 'ms') + '</div></div>').join('');
+  const rc = $('#orcaRecent');
+  if (rc) rc.innerHTML = (b.recent || []).length ? '<div class="sub">近期派工</div>' + (b.recent || []).slice(0, 6).map(r =>
+    '<div class="orca-r2"><span class="orca-s ' + esc(r.status) + '">' + esc(r.status) + '</span>'
+    + esc(String(r.task).slice(0, 34)) + '<span class="sub">' + esc(r.backend || '-') + ' · ' + (r.ms || 0) + 'ms</span>'
+    + (r.error ? '<span class="bad">' + esc(r.error.slice(0, 40)) + '</span>' : '') + '</div>').join('')
+    : '<div class="sub">暂无派工</div>';
+  const jb = $('#orcaJobs');
+  if (jb) jb.innerHTML = (jobs || []).length ? '<div class="sub" style="margin-top:8px">SaaS 后台作业</div>' + (jobs || []).slice(0, 6).map(j =>
+    '<div class="orca-r2"><span class="orca-s ' + esc(j.status) + '">' + esc(j.status) + '</span>'
+    + esc(j.name) + '<span class="sub">' + (j.progress || 0) + '% · ' + esc(j.kind) + '</span></div>').join('') : '';
+  const sl = $('#orcaSlots');
+  if (sl && !sl.options.length) {
+    sl.innerHTML = Array.from({length: b.queue.maxSlots || 4}, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + '</option>').join('');
+    sl.value = String(q.slots || 2);
+  }
+
+  // —— 实时图表 ——
+  if (window.Chart && b.chart) {
+    const c = b.chart;
+    const labels = c.labels || [];
+    const makeChart = (id, data, label, color, borderColor) => {
+      const ctx = $('#' + id);
+      if (!ctx) return;
+      if (ctx._chart) ctx._chart.destroy();
+      ctx._chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{ label, data, borderColor, backgroundColor: color + '33', fill: true, tension: 0.3, pointRadius: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: label==='利用率%' ? 100 : undefined } } }
+      });
+    };
+    makeChart('chartUtil', c.utilization || [], '利用率%', '#e67e22', '#e67e22');
+    makeChart('chartThroughput', c.throughput || [], '吞吐', '#3498db', '#3498db');
+    makeChart('chartLatency', c.latency || [], '延迟 ms', '#9b59b6', '#9b59b6');
+    makeChart('chartSuccess', c.successRate || [], '成功率%', '#27ae60', '#27ae60');
+  }
+
+  // —— 人员脉络 ——
+  const pm = $('#pulseMap');
+  if (pm && b.pulse) {
+    const p = b.pulse;
+    let html = '';
+    if (p.personnel && p.personnel.length) {
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">';
+      p.personnel.forEach(per => {
+        const color = per.running > 0 ? '#e74c3c' : (per.done > 0 ? '#27ae60' : '#95a5a6');
+        html += '<div class="orca-exec t-' + per.type + '" style="border-left:4px solid ' + color + '">'
+          + '<div class="orca-e-h"><b>' + esc(per.label) + '</b><span class="orca-e-t">' + esc(per.type) + '</span></div>'
+          + '<div class="orca-e-s">' + esc(per.strength || '') + '</div>'
+          + '<div class="orca-e-m">负载 ' + per.load + ' · 运行中 ' + per.running + ' · 完成 ' + per.done + ' · 失败 ' + per.failed
+          + ' · 成功率 ' + per.successRate + '% · 平均耗时 ' + per.avgMs + 'ms</div></div>';
+      });
+      html += '</div>';
+    }
+    if (p.summary) {
+      html += '<div class="sub" style="margin-top:8px">'
+        + '运行中: <b>' + p.summary.totalRunning + '</b> · '
+        + '排队: <b>' + p.summary.totalQueued + '</b> · '
+        + '小时吞吐: <b>' + p.summary.throughputLastHour + '</b> · '
+        + '平均延迟: <b>' + p.summary.avgLatencyLastHour + 'ms</b></div>';
+    }
+    pm.innerHTML = html;
+  }
+
+  // —— 场景动态图 ——
+  if (window.Chart && b.scene) {
+    const sc = b.scene;
+    const ctx = $('#sceneGraph');
+    if (ctx) {
+      if (ctx._chart) ctx._chart.destroy();
+      // Timeline chart
+      ctx._chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Array.from({length: (sc.timeline || []).length}, (_, i) => i + 'm'),
+          datasets: [{ label: '每分钟完成数', data: sc.timeline || [], backgroundColor: '#3498db', borderRadius: 2 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+    // Heatmap
+    const hm = $('#heatmap');
+    if (hm && sc.heatmap) {
+      const entries = Object.entries(sc.heatmap).sort((a,b) => b[1] - a[1]).slice(0, 10);
+      hm.innerHTML = '<b>后端切换热力 (Top 10):</b> ' + entries.map(([k,v]) => '<span class="watch-pill" style="margin:2px">' + esc(k) + ' × ' + v + '</span>').join(' ');
+    }
+  }
+}
+async function refreshOrca() {
+  const d = await api('/v1/orca');
+  if (d.ok) renderOrca(d.board, d.jobs);
+}
+$('#orcaEnq') && ($('#orcaEnq').onclick = async () => {
+  const task = ($('#orcaTask').value || '').trim();
+  if (!task) { toast('先写下要派的任务', 'bad'); return; }
+  const r = await api('/v1/orca/enqueue', { method: 'POST', body: JSON.stringify({
+    task, arch: $('#orcaArch').value || 'route', priority: Number($('#orcaPri').value) || 5 }) });
+  if (r.ok) { toast('已入队（队列 ' + r.queueLength + '，槽位 ' + r.slots + '）', 'ok'); $('#orcaTask').value = ''; refreshOrca(); }
+  else toast(r.error, 'bad');
+});
+$('#orcaRun') && ($('#orcaRun').onclick = async () => {
+  const btn = $('#orcaRun');
+  btn.disabled = true; btn.textContent = '执行中…';
+  try {
+    const r = await api('/v1/orca/run', { method: 'POST', body: JSON.stringify({ timeoutMs: 30000 }) });
+    toast(r.reason ? r.reason : ('执行 ' + r.executed + ' 项，成功 ' + (r.done || 0)), 'ok');
+    refreshOrca();
+  } catch (e) { toast('执行失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '执行队列';
+});
+$('#orcaSlots') && ($('#orcaSlots').addEventListener('change', async () => {
+  const r = await api('/v1/orca/slots', { method: 'POST', body: JSON.stringify({ slots: Number($('#orcaSlots').value) }) });
+  toast('槽位已调整为 ' + r.slots, 'ok');
+  refreshOrca();
+}));
+
+// ===== MetaGPT SOP 流水线（第 9 条）=====
+function renderSopStages(stages) {
+  const box = $('#sopStages');
+  if (!box || !stages) return;
+  box.innerHTML = stages.map(s =>
+    '<div class="sop-stage"><div class="sop-n">' + s.order + '</div>'
+    + '<div class="sop-r">' + esc(s.role) + '</div>'
+    + '<div class="sop-d">' + esc(s.deliverable) + '</div>'
+    + '<div class="sop-c">' + s.checklist.map(c => '<span>' + esc(c.name) + '</span>').join('') + '</div></div>').join('');
+}
+function renderSopJob(j) {
+  const box = $('#sopOut');
+  if (!box || !j) return;
+  if (!j.stages) { box.innerHTML = '<div class="wb-ok" style="color:#fca5a5">' + esc(j.error || '未执行') + '</div>'; return; }
+  let h = '<div class="sop-status ' + esc(j.status) + '">状态：' + esc(j.status)
+    + (j.blockedAt ? '（阻塞于「' + esc(j.blockedAt) + '」）' : '')
+    + ' · 执行 ' + j.stages.length + ' / 5 阶段' + (j.ms ? ' · ' + j.ms + 'ms' : '') + '</div>';
+  h += '<div class="sop-flow">' + j.stages.map(s =>
+    '<div class="sop-f ' + (s.ok ? 'ok' : 'bad') + '">'
+    + '<span class="sop-f-r">' + esc(s.role) + '</span>'
+    + '<span class="sop-f-c">覆盖 ' + s.coverage + '%</span>'
+    + (s.revised ? '<span class="sop-f-v">修订 ' + s.revised + ' 次</span>' : '')
+    + (s.blocked ? '<span class="bad">阻塞：' + esc((s.missing || []).slice(0, 3).join('、')) + '</span>' : '')
+    + '</div>').join('') + '</div>';
+  if (j.note) h += '<div class="sop-note">' + esc(j.note) + '</div>';
+  if (j.finalDeliverable) h += '<div class="orch-ans">' + esc(String(j.finalDeliverable).slice(0, 2000)) + '</div>';
+  box.innerHTML = h;
+}
+async function refreshSop() {
+  const s = await api('/v1/sop/stages');
+  if (s.ok) renderSopStages(s.stages);
+}
+$('#sopRun') && ($('#sopRun').onclick = async () => {
+  const req = ($('#sopReq').value || '').trim();
+  if (!req) { toast('先写一行需求', 'bad'); return; }
+  const btn = $('#sopRun');
+  btn.disabled = true; btn.textContent = '虚拟研发团队执行中…（可达数分钟）';
+  $('#sopOut').innerHTML = '<div class="sub">正在执行：产品经理 → 架构师 → 项目经理 → 工程师 → QA…</div>';
+  try {
+    const j = await api('/v1/sop/run', { method: 'POST', body: JSON.stringify({ requirement: req, timeoutMs: 40000, maxRevise: 1 }) });
+    renderSopJob(j);
+    toast(j.status === 'done' ? 'SOP 完成' : ('SOP 阻塞于「' + (j.blockedAt || '?') + '」——闸门按设计拦住了'), j.status === 'done' ? 'ok' : 'bad');
+  } catch (e) { $('#sopOut').innerHTML = '<div class="wb-ok" style="color:#fca5a5">执行失败：' + esc(e.message || e) + '</div>'; }
+  btn.disabled = false; btn.textContent = '启动虚拟研发团队';
+});
+
+// ===== 七层架构 + 七种编排（第 1、7 条）=====
+let ORCH_CMDS = [];
+// 七层状态来自**真实探测**（require 一遍、探函数、调一次轻量接口），
+// 不是静态声明——所以这里显示的 down 是真的坏了，不是没配。
+function renderLayers(a, loop) {
+  const st = $('#archStack');
+  if (!st || !a) return;
+  st.innerHTML = a.layers.slice().reverse().map(l =>
+    '<div class="arch-layer ' + l.status + '" data-layer="' + esc(l.id) + '">'
+    + '<div class="arch-lv">' + l.order + '</div>'
+    + '<div class="arch-main">'
+    + '<div class="arch-name">' + esc(l.name) + '<span class="arch-en">' + esc(l.en) + '</span>'
+    + '<span class="arch-rate ' + l.status + '">' + l.ok + '/' + l.total + ' ' + l.rate + '%</span></div>'
+    + '<div class="arch-role">' + esc(l.role) + '</div>'
+    + '<div class="arch-comps">' + l.components.map(c =>
+        '<span class="arch-comp ' + c.state + '" title="' + esc(c.label + ' — ' + c.note) + '">' + esc(c.label) + '</span>').join('') + '</div>'
+    + '</div></div>').join('');
+  $('#archTotals').textContent = a.totals.components + ' 个组件，正常 ' + a.totals.ok + '（' + a.totals.rate
+    + '%）；健康层 ' + a.totals.healthyLayers + '/' + a.totals.layers + (a.totals.down ? '；未通 ' + a.totals.down + ' 个（见上方灰色/红色项）' : '');
+
+  const lp = $('#archLoop');
+  if (lp && loop) {
+    lp.innerHTML = loop.steps.map(s =>
+      '<div class="arch-lp ' + s.state + '">'
+      + '<div class="arch-lp-n">' + s.step + '</div>'
+      + '<div class="arch-lp-t">' + esc(s.label) + '</div>'
+      + '<div class="arch-lp-d">' + esc(s.desc) + '</div>'
+      + '<div class="arch-lp-c">' + s.components.map(c => '<span class="' + c.state + '">' + esc(c.key) + '</span>').join('') + '</div>'
+      + '<div class="arch-lp-s">' + s.ok + '/' + s.total + ' ' + (s.state === 'ok' ? '✓' : s.state === 'broken' ? '✗ 断点' : '⚠') + '</div>'
+      + '</div>').join('')
+      + '<div class="arch-loop-state">' + (loop.closed ? '✓ 闭环完整闭合' : '✗ 闭环存在断点：' + loop.broken.concat(loop.degraded).join('、')) + '</div>';
+  }
+}
+function renderOrchestrators(h) {
+  const box = $('#orchList');
+  if (!box || !h) return;
+  box.innerHTML = h.byKind.map(x =>
+    '<div class="orch-item">'
+    + '<div class="orch-i-h"><b>' + esc(x.kind) + '</b>'
+    + '<span class="orch-n">' + x.n + ' 次 · 平均 ' + x.avgCalls + ' 次调用</span>'
+    + (x.successRate !== null ? '<span class="orch-r ' + (x.successRate >= 60 ? 'ok' : 'bad') + '">成功率 ' + x.successRate + '%</span>' : '')
+    + '</div></div>').join('')
+    + h.registry.map(r =>
+      '<div class="orch-item reg">'
+      + '<div class="orch-i-h"><b>' + esc(r.name) + '</b><span class="orch-cost">成本 ' + esc(r.cost) + '</span></div>'
+      + '<div class="orch-when">' + esc(r.when) + '</div>'
+      + '</div>').join('');
+  const sel = $('#orchKind');
+  if (sel && !sel.options.length) {
+    sel.innerHTML = '<option value="">自动推荐</option>'
+      + h.registry.map(r => '<option value="' + r.kind + '">' + esc(r.name) + '</option>').join('');
+  }
+}
+async function refreshArchitecture() {
+  const d = await api('/v1/arch/layers');
+  if (d.ok) renderLayers(d.architecture, d.loop);
+  const o = await api('/v1/arch/orchestrators');
+  if (o.ok) renderOrchestrators(o);
+  refreshChaos();      // 混沌治理状态
+  refreshOrchLearn();  // 学习闭环
+}
+$('#orchRun') && ($('#orchRun').onclick = async () => {
+  const task = ($('#orchTask').value || '').trim();
+  if (!task) { toast('先写任务', 'bad'); return; }
+  const kind = $('#orchKind').value || '';
+  const btn = $('#orchRun');
+  btn.disabled = true; btn.textContent = '▶ 执行中…';
+  try {
+    const d = await api('/v1/arch/run', { method: 'POST', body: JSON.stringify({ kind: kind || undefined, task }) });
+    if (d.needKind) {
+      toast('未指定架构，推荐「' + d.recommended.name + '」：' + d.recommended.why, 'ok');
+      $('#orchKind').value = d.recommended.kind;
+      return;
+    }
+    const r = d.result, tr = r.trace || {};
+    $('#orchOut').innerHTML = '<div class="orch-meta">架构 <b>' + esc(r.name) + '</b> · 调用 ' + (tr.calls || 0) + ' 次 · 耗时 ' + (tr.ms || 0) + 'ms'
+      + (tr.failed ? ' · 失败角色 ' + tr.failed : '') + (tr.retries ? ' · 重试 ' + tr.retries + ' 次' : '')
+      + (tr.nodes ? ' · 节点 ' + tr.executed + '/' + tr.nodes : '') + '</div>'
+      + '<div class="orch-trade">' + esc(tr.tradeoff || '') + '</div>'
+      + '<div class="orch-ans">' + esc(String(r.answer).slice(0, 1500)) + '</div>'
+      + (tr.steps ? '<details class="orch-steps"><summary>推理链（' + tr.steps.length + ' 步）</summary>'
+        + tr.steps.map(s => '<div class="orch-step">' + (s.error ? ('✗ ' + esc(s.error)) : ('✓ ' + esc(s.said || ''))) + '</div>').join('') + '</details>' : '');
+    refreshOrchestrators();
+  } catch (e) { toast('执行失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '▶ 执行';
+});
+// —— 控制命令面（第 7 条深化：统一互动管理控制命令）——
+// 五条命令全部走后端 /v1/arch/cmd，与后端共用同一实现，避免前后端两套逻辑漂移。
+function renderCommands(list) {
+  const box = $('#orchCmds');
+  if (!box || !list) return;
+  box.innerHTML = list.map(c =>
+    '<div class="cmd-item"><code>' + esc(c.cmd) + '</code>'
+    + '<span class="cmd-d">' + esc(c.desc) + '</span>'
+    + '<span class="cmd-u">' + esc(c.usage) + '</span></div>').join('');
+}
+$('#orchCmdSel') && ($('#orchCmdSel').addEventListener('change', () => {
+  const c = ORCH_CMDS.find(x => x.cmd === $('#orchCmdSel').value);
+  if (c) $('#orchTask').value = c.usage;
+}));
+api('/v1/arch/commands').then(d => {
+  ORCH_CMDS = d.commands || [];
+  const sel = $('#orchCmdSel');
+  if (sel && !sel.options.length) sel.innerHTML = '<option value="">— 命令 —</option>' + ORCH_CMDS.map(c => '<option value="' + esc(c.cmd) + '">' + esc(c.cmd) + '</option>').join('');
+  renderCommands(ORCH_CMDS);
+}).catch(() => {});
+$('#orchCmdGo') && ($('#orchCmdGo').onclick = async () => {
+  const cmd = $('#orchCmdSel').value;
+  const task = ($('#orchTask').value || '').trim();
+  if (!cmd) { toast('先选命令', 'bad'); return; }
+  const line = task.indexOf(cmd) === 0 ? task : (cmd + ' ' + task);
+  const btn = $('#orchCmdGo');
+  btn.disabled = true; btn.textContent = '执行中…';
+  try {
+    const d = await api('/v1/arch/cmd', { method: 'POST', body: JSON.stringify({ line }) });
+    $('#orchOut').innerHTML = '<div class="orch-meta">命令 ' + esc(d.name) + '（' + d.ms + 'ms）· ' + esc(d.desc) + '</div>'
+      + '<div class="orch-ans">' + esc(d.out) + '</div>';
+    if ($('#orchChaosBtn')) refreshChaos();
+  } catch (e) { toast('命令失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '执行命令';
+});
+
+// —— 混沌演练（第 7 条深化：混乱治理）——
+async function refreshChaos() {
+  const d = await api('/v1/arch/chaos');
+  const box = $('#chaosBox');
+  if (!box) return;
+  if (!d.last) { box.innerHTML = '<div class="text-muted">尚未演练。点右侧按钮注入受控故障。</div>'; return; }
+  const s = d.last;
+  box.innerHTML = '<div class="chaos-sum">最近 ' + s.rounds + ' 轮：'
+    + '<span class="ok">通过 ' + s.passed + '</span>'
+    + (s.crashed ? ' <span class="bad">崩溃 ' + s.crashed + '</span>' : '')
+    + (s.silent ? ' <span class="bad">静默失败 ' + s.silent + '</span>' : '')
+    + ' <span class="sub">诚实标注 ' + s.honestCount + '/' + s.rounds + '</span></div>';
+}
+$('#orchChaosBtn') && ($('#orchChaosBtn').onclick = async () => {
+  const btn = $('#orchChaosBtn');
+  btn.disabled = true; btn.textContent = '混沌演练中…';
+  try {
+    const d = await api('/v1/arch/chaos', { method: 'POST', body: JSON.stringify({ rounds: 6 }) });
+    const box = $('#chaosBox');
+    if (box) box.innerHTML = '<div class="chaos-sum">演练 ' + d.summary.rounds + ' 轮：'
+      + '<span class="ok">通过 ' + d.summary.passed + '</span>'
+      + (d.summary.crashed ? ' <span class="bad">崩溃 ' + d.summary.crashed + '</span>' : '')
+      + (d.summary.silent ? ' <span class="bad">静默失败 ' + d.summary.silent + '</span>' : '')
+      + ' <span class="sub">诚实标注 ' + d.summary.honestCount + '/' + d.summary.rounds + '</span></div>'
+      + d.results.map(r => '<div class="chaos-r"><span class="chaos-g ' + r.grade + '">' + r.grade + '</span>'
+        + esc(r.kind.padEnd(11)) + '<span class="sub">' + esc(r.modeDesc) + '</span>'
+        + '<span class="' + (r.produced ? 'ok' : 'bad') + '">' + (r.produced ? '有降级产出' : '无产出') + '</span>'
+        + (r.threw ? '<span class="bad">抛异常</span>' : '') + '</div>').join('');
+    toast('混沌演练完成：通过 ' + d.summary.passed + '/' + d.summary.rounds, d.summary.crashed ? 'bad' : 'ok');
+  } catch (e) { toast('演练失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '混沌演练';
+});
+
+// —— 学习闭环（第 7 条深化：学习进化）——
+async function refreshOrchLearn() {
+  const d = await api('/v1/arch/learn');
+  const box = $('#orchLearn');
+  if (!box || !d.ok) return;
+  const l = d.learn;
+  box.innerHTML = '<div class="sub" style="margin-bottom:5px">样本 ' + l.samples + ' 条 · 架构 ' + l.byKind.length + ' 种</div>'
+    + l.byKind.map(k => '<div class="learn-r"><b>' + esc(k.kind) + '</b>'
+      + '<span class="sub">n=' + k.n + ' · 成功率 ' + k.successRate + '% · 平均 ' + k.avgCalls + ' 次调用 · 平均 ' + k.avgMs + 'ms</span></div>').join('')
+    + (Object.keys(l.patterns).length
+      ? '<div class="learn-p" style="margin-top:6px">学到的模式：' + Object.keys(l.patterns).map(x =>
+          esc(x) + '→' + esc(l.patterns[x].best) + '(' + l.patterns[x].confidence + '%)').join(' · ') + '</div>'
+      : '<div class="sub" style="margin-top:6px">样本不足（每桶需 ≥2 条），暂不硬学——避免过拟合噪声</div>');
+}
+
+$('#orchRec') && ($('#orchRec').onclick = async () => {
+  const task = ($('#orchTask').value || '').trim();
+  if (!task) { toast('先写任务', 'bad'); return; }
+  const d = await api('/v1/arch/recommend', { method: 'POST', body: JSON.stringify({ task }) });
+  $('#orchKind').value = d.top.kind;
+  toast('推荐「' + d.top.name + '」：' + d.top.why, 'ok');
+});
+
+// ===== Graphify 语义知识图谱（喂给记忆层/七层架构/学习闭环）=====
+// 为什么单独一个面板而不是塞进某个角落：图谱是**跨模块的横切视图**，
+// 它回答的是"模块之间、任务与员工之间、知识与线索之间到底怎么连的"——
+// 这个问题没有任何单个面板能回答，但记忆层、七层架构、学习闭环三个都要用它。
+function renderGraph(d) {
+  const t = d.totals || {};
+  const gn = $('#gpNodes'); if (gn) gn.textContent = t.nodes || 0;
+  const ge = $('#gpEdges'); if (ge) ge.textContent = t.edges || 0;
+  const st = $('#gpStats');
+  if (st) st.innerHTML =
+    '<div class="stat"><div class="stat-v">' + (t.nodes || 0) + '</div><div class="stat-l">节点</div></div>'
+    + '<div class="stat"><div class="stat-v">' + (t.edges || 0) + '</div><div class="stat-l">边</div></div>'
+    + '<div class="stat"><div class="stat-v">' + (t.avgDegree || 0) + '</div><div class="stat-l">平均度</div></div>'
+    + '<div class="stat"><div class="stat-v ' + ((t.isolated || 0) > 0 ? 'bad' : 'ok') + '">' + (t.isolated || 0) + '</div><div class="stat-l">孤立节点</div></div>';
+  const kd = $('#gpKinds');
+  if (kd) kd.innerHTML = (d.kinds || []).map(k =>
+    '<span class="gp-k" style="border-color:' + k.color + ';color:' + k.color + '">' + esc(k.label)
+    + '<b>' + ((d.byKind || {})[k.kind] || 0) + '</b></span>').join('');
+  const tp = $('#gpTop');
+  if (tp) tp.innerHTML = '<div class="sub" style="margin-top:6px">枢纽节点（连接最多，度数 Top10）</div>'
+    + (d.top || []).slice(0, 10).map(n =>
+      '<div class="gp-n"><span class="gp-nd" style="width:' + Math.max(6, Math.min(100, n.degree * 2)) + 'px"></span>'
+      + '<b>' + esc(n.label) + '</b><span class="sub">' + esc(n.kind) + ' · 度 ' + n.degree + '</span>'
+      + '<button class="btn ghost small" data-gpnode="' + esc(n.id) + '">查邻域</button></div>').join('');
+  $$('#gpTop [data-gpnode]').forEach(b => b.onclick = () => { $('#gpNode').value = b.dataset.gpnode; queryGraph(); });
+  const orp = $('#gpOrphan');
+  if (orp) orp.innerHTML = (d.isolated && d.isolated.count)
+    ? '<div class="gp-orphan-box"><b>孤立节点 ' + d.isolated.count + ' 个</b>'
+      + '<div class="sub">这些内容存在于系统，但没和任何东西连起来——属待治理项。样例：'
+      + esc((d.isolated.sample || []).slice(0, 6).join('、')) + '</div></div>'
+    : '<div class="mh-ok">✓ 无孤立节点</div>';
+}
+async function refreshGraph() {
+  try { const d = await api('/v1/graph'); if (d.ok) renderGraph(d); } catch (e) {}
+}
+function queryGraph() {
+  const n = ($('#gpNode').value || '').trim();
+  if (!n) { toast('粘贴一个节点 id', 'bad'); return; }
+  api('/v1/graph?node=' + encodeURIComponent(n) + '&depth=2').then(d => {
+    const nb = d.neighborhood, box = $('#gpNb');
+    if (!nb || !nb.root) {
+      if (box) box.innerHTML = '<div class="wb-ok" style="color:#fca5a5">图中没有节点「' + esc(n) + '」。可在上方枢纽列表点「查邻域」拿合法 id。</div>';
+      return;
+    }
+    box.innerHTML = '<div class="orch-meta">根节点 <b>' + esc(nb.root.label) + '</b>（' + esc(nb.root.kind) + '）· 邻接 ' + (nb.linkCount || 0) + ' 条</div>'
+      + (nb.layers || []).map(l => '<div class="sub" style="margin-top:6px">第 ' + l.depth + ' 跳 · ' + l.linkCount + ' 条</div>'
+        + l.links.map(e => '<div class="gp-l"><span class="gp-dir ' + e.dir + '">' + (e.dir === 'out' ? '→' : '←') + '</span>'
+          + esc(e.type) + '<span class="sub">' + esc(e.to) + '</span></div>').join('')).join('');
+  }).catch(e => toast('查询失败：' + (e.message || e), 'bad'));
+}
+$('#gpFind') && ($('#gpFind').onclick = queryGraph);
+
+async function refreshCmd() {
+  refreshGraph();       // Graphify 语义知识图谱
+  refreshOrca();        // 第 3 条：Orca 指挥台
+  refreshSop();         // 第 9 条：SOP 流水线
+  refreshArchitecture();  // 第 1、7 条：七层架构 + 七种编排
+  setTimeout(applyExplanations, 400);   // 历史类容器的空态说明
+  refreshWarboard();      // 第 12 条：全局态势 + 指挥建议
+  const setTxt = (id, txt) => { const e = $(id); if (e) { e.hidden = false; e.textContent = txt; } };
+  const fail = id => setTxt(id, '⏳ 载入中…');
+
+  // 1) 本轮决策 · 主攻方向
+  fail('#cmdMission');
+  try {
+    const g = await api('/v1/goalpilot/status');
+    const d = g.lastDaily || null;
+    setTxt('#cmdMission', d
+      ? '📌 本轮主攻 · ' + esc(d.day) + '\n  状态「' + esc(d.status) + '」（Q' + d.quarter + ' · 剩 ' + d.quarterDaysLeft + ' 天）\n' +
+        '  累计 ¥' + d.kpi.revenue + ' / 目标 ¥' + (d.kpi.target / 10000).toFixed(0) + '万（' + d.kpi.pct + '%）\n' +
+        '  今日 +¥' + d.todayRevenue + ' · 剩 ' + d.kpi.daysLeft + ' 天需日均 ¥' + d.kpi.needDaily + '\n' +
+        '  本周可及 ¥' + d.milestone.weekReach + '（计划 ¥' + d.milestone.weekPlan + '）\n—— 优化目标 ——\n' +
+        ((d.advises || []).map(x => '  · ' + esc(x)).join('\n') || '  （无）') +
+        '\n—— 本轮动作 ——\n' +
+        ((d.acted || []).length ? (d.acted || []).map(x => '  ✓ ' + esc(x)).join('\n') : '  本轮无外部动作（维持自主运营节奏）')
+      : '本轮闭环尚未运行——点右上「▶ 立即执行一轮」启动，指挥塔会据此定主攻方向。');
+  } catch (e) { setTxt('#cmdMission', '主攻方向载入失败：' + e.message); }
+
+  // 2) 最近行动 · 真实验收证据
+  fail('#cmdLast');
+  try {
+    const a = await api('/v1/autopilot/status');
+    const last = a.last || null;
+    if (last) {
+      setTxt('#cmdLast', '🕘 第 ' + last.no + ' 轮 · ' + (last.at ? fmt(last.at) : '—') +
+        (last.ms ? ' · 耗时 ' + Math.round(last.ms / 1000) + 's' : '') +
+        (last.ok ? ' · ✅ 成功' : ' · ⚠️ 部分失败') +
+        '\n' + (last.report || '（本轮无报告）'));
+    } else setTxt('#cmdLast', '尚无轮次记录——点「▶ 立即执行一轮」跑出第一条真实验收证据。');
+  } catch (e) { setTxt('#cmdLast', '最近行动载入失败：' + e.message); }
+
+  // 3) 指挥执行台账（最近 30 轮）
+  fail('#cmdLog');
+  try {
+    const l = await api('/v1/autopilot/log?limit=30');
+    const rows = l.log || [];
+    setTxt('#cmdLog', rows.length
+      ? rows.slice(-30).map(r => (r.at ? fmt(r.at) : '—') + '  第' + r.no + '轮  ' +
+          (r.ok ? '✓' : '✗') + '  ' + Math.round((r.ms || 0) / 1000) + 's' +
+          ((r.failed || '') ? '  失败：' + esc(String(r.failed).slice(0, 80)) : '') +
+          ((r.advises || []).length ? '  · ' + esc((r.advises || [])[0]) : '')).join('\n')
+      : '台账为空——每执行一轮都会在这里留痕（真实发生的才记，跳过的如实写"跳过"）。');
+  } catch (e) { setTxt('#cmdLog', '台账载入失败：' + e.message); }
+
+  // 4) 发布列车状态
+  fail('#cmdTrain');
+  try {
+    const t = await api('/v1/train');
+    const b = t.board || t;
+    if (b && b.current) {
+      const s = b.current.slots || {};
+      const one = x => (x && (x.title || x)) ? esc(x.title || x) : '空';
+      setTxt('#cmdTrain', '🚂 第 ' + b.current.no + ' 班 · ' + (b.current.released ? '已发车' : '装载中') + '\n' +
+        '  增长件：' + one(s.growth) + '\n  留存件：' + one(s.retention) + '\n  还债件：' + one(s.debt) +
+        '\n  🅿️ parking lot ' + ((b.parkinglot || []).length) + ' 条待取' +
+        ((b.techDebt || []).length ? '\n  ⚠️ 技术欠账 ' + b.techDebt.length + ' 项：' + b.techDebt.map(esc).join('、') : ''));
+    } else setTxt('#cmdTrain', '发布列车状态不可用。');
+  } catch (e) { setTxt('#cmdTrain', '发布列车载入失败：' + e.message); }
+}
+
+// 指挥塔按钮
+$('#cmdStatusBtn') && ($('#cmdStatusBtn').onclick = () => refreshCmd().catch(e => toast(e.message, 'bad')));
+$('#cmdRunBtn') && ($('#cmdRunBtn').onclick = async () => {
+  const btn = $('#cmdRunBtn');
+  btn.disabled = true; btn.textContent = '⏳ 执行中…';
+  try {
+    const d = await api('/v1/autopilot/run', { method: 'POST' });
+    // /v1/autopilot/run → { ok, round:{ no, ms, done, advises, steps:[{id,label,ok,ms,err}], failed, ok } }
+    // 没有 okCount 字段（原代码读它，永远显示"成功 ?"）。成功数从 steps 里数出来，
+    // 失败数用后端给的 round.failed —— 不编造后端没提供的数字。
+    const rd = d.round || {};
+    const steps = Array.isArray(rd.steps) ? rd.steps : [];
+    const okN = steps.filter(s => s.ok).length;
+    const badN = typeof rd.failed === 'number' ? rd.failed : Math.max(0, steps.length - okN);
+    toast(d.ok
+      ? '已执行一轮：成功 ' + (steps.length ? okN + '/' + steps.length : '?') + ' 项' + (badN ? ' · 失败 ' + badN : '')
+      : ('执行失败：' + (d.error || '')), d.ok ? 'ok' : 'bad');
+  } catch (e) { toast('执行失败：' + e.message, 'bad'); }
+  finally { btn.disabled = false; btn.textContent = '▶ 立即执行一轮'; refreshCmd(); }
+});
+$('#agRunGo') && ($('#agRunGo').onclick = async () => {
+  const prompt = $('#agRunPrompt').value.trim();
+  if (!prompt) return toast('请填写任务描述', 'bad');
+  const d = await api('/v1/agentcenter/agents/run', { method: 'POST', body: JSON.stringify({ prompt, title: $('#agRunTitle').value.trim(), provider: $('#agRunProvider').value.trim() }) });
+  if (d.ok) { $('#agRunPrompt').value = ''; toast('已创建并后台运行 Agent ' + (d.agentId || ''), 'ok'); }
+  agShowOut(d);
+  refreshAgentsList(); refreshCoop();
+});
+$('#agSendGo') && ($('#agSendGo').onclick = async () => {
+  const agentId = $('#agSendId').value.trim();
+  const prompt = $('#agSendPrompt').value.trim();
+  if (!agentId || !prompt) return toast('请填写 Agent ID 与指挥指令', 'bad');
+  const d = await api('/v1/agentcenter/agents/send', { method: 'POST', body: JSON.stringify({ agentId, prompt }) });
+  if (d.ok) { $('#agSendPrompt').value = ''; toast('指令已投递给 ' + agentId, 'ok'); }
+  agShowOut(d);
+  refreshCoop();
+});
+$('#agStopGo') && ($('#agStopGo').onclick = async () => {
+  const agentId = $('#agStopId').value.trim();
+  if (!agentId) return toast('请填写 Agent ID', 'bad');
+  const d = await api('/v1/agentcenter/agents/stop', { method: 'POST', body: JSON.stringify({ agentId }) });
+  if (d.ok) toast('Agent ' + agentId + ' 已停止', 'ok');
+  agShowOut(d);
+  refreshAgentsList(); refreshCoop();
+});
+$('#agLogsGo') && ($('#agLogsGo').onclick = async () => {
+  const agentId = $('#agLogsId').value.trim();
+  if (!agentId) return toast('请填写 Agent ID', 'bad');
+  const d = await api('/v1/agentcenter/agents/logs', { method: 'POST', body: JSON.stringify({ agentId }) });
+  agShowOut(d);
+});
+window.refreshAgents = refreshAgents;
+
+// ===== 组织：一人公司 / 批量 AI 员工 =====
+const NAMES = ['沐岚','起衡','默言','理圆','见山','拾贝','归尘','望舒','云岫','松照','寄微','程序','喵叙','阿观'];
+const ROLES = ['增长分析师','内容运营','客户支持','数据专员','产品助理','商务拓展','品牌文案','社群运营','测试助理','研究助手','排期专员','质量审计'];
+$('#oneBtn') && ($('#oneBtn').onclick = async () => {
+  const d = await api('/v1/org/staff', { method: 'POST', body: JSON.stringify({ one: true }) });
+  if (d.ok) { toast('一人公司矩阵已就位（12 角色）', 'ok'); refreshOrg(); }
+});
+$('#bulkBtn') && ($('#bulkBtn').onclick = async () => {
+  confirmBox('批量生成 100 名 AI 员工（角色随机，用于模拟更大组织）？', async () => {
+    for (let i = 1; i <= 100; i++) {
+      await api('/v1/org/staff', { method: 'POST', body: JSON.stringify({
+        name: NAMES[i % NAMES.length] + (i > NAMES.length ? '-' + i : ''), role: ROLES[i % ROLES.length],
+        skills: [['Python', 'SQL'], ['内容', '数据'], ['客服', 'CRM'], ['运营', 'SEO']][i % 4]
+      }) });
+    }
+    toast('已生成 100 名 AI 员工', 'ok');
+    refreshOrg();
+  });
+});
+
+// ===== 官方免费额度通道（聚合官方免费 tier + 健康/配额感知轮换）=====
+async function refreshFreeTier() {
+  let d;
+  try { d = await api('/v1/free-tier'); } catch (e) { return; }
+  if (!d || !d.ok) return;
+  const tb = $('#freeTierTable tbody');
+  if (tb) {
+    tb.innerHTML = (d.providers || []).map(p =>
+      '<tr><td><b>' + esc(p.name) + '</b><br><span class="sub">' + esc(p.env) + '</span></td>' +
+      '<td>' + (p.rpm ? p.rpm + ' RPM' : '—') + (p.rpd ? '<br><span class="sub">' + p.rpd + ' 次/天</span>' : '') + '</td>' +
+      '<td>' + (p.modelCount || 0) + '</td>' +
+      '<td>' + (p.latencyMs ? p.latencyMs + 'ms' : '—') +
+        (p.ok ? ' <span class="sub" style="color:#10b981">✓' + p.ok + '</span>' : '') +
+        (p.fail ? ' <span class="sub" style="color:#f59e0b">✗' + p.fail + '</span>' : '') + '</td>' +
+      '<td><span class="chip ' + (p.usable ? 'running' : 'paused') + '">' +
+        (p.usable ? '可用' : (p.cooling ? '冷却中' : (p.hasKey ? '受限' : '未配置'))) + '</span></td></tr>'
+    ).join('');
+  }
+  const g = d.grant || {};
+  const ge = $('#freeTierGrant');
+  if (ge) ge.textContent = '今日免费额度：剩余 ' + (g.remaining != null ? g.remaining : '—') + ' / ' + (g.limit != null ? g.limit : '—') + ' 次（订阅后不限量）';
+  const ne = $('#freeTierNote');
+  if (ne) ne.textContent = '已启用 ' + (d.usableProviders || 0) + ' / ' + (d.totalProviders || 0) + ' 个通道 · 共 ' + (d.totalModels || 0) + ' 个免费模型。免费通道不可用时，会如实报错并自动回落到已配置的付费通道。';
+}
+
+// 「在线发现模型」：动态拉取各通道当前可用（且免费）的模型清单——
+// 静态清单会过期（实测 NVIDIA 的 llama-3.1-8b 已于 2026-08 下线），所以提供一键刷新。
+$('#freeTierRefreshBtn') && ($('#freeTierRefreshBtn').onclick = async () => {
+  const btn = $('#freeTierRefreshBtn');
+  btn.disabled = true; btn.textContent = '⏳ 发现中…';
+  try {
+    const r = await api('/v1/free-tier/discover', { method: 'POST' });
+    const okN = (r && r.results ? r.results.filter(x => x && x.ok).length : 0);
+    toast(r && r.ok ? ('已在线发现最新免费模型（' + okN + ' 个通道更新）') : '发现失败', r && r.ok ? 'ok' : 'bad');
+  } catch (e) { toast('发现失败：' + e.message, 'bad'); }
+  btn.disabled = false; btn.textContent = '🔄 在线发现模型';
+  refreshFreeTier();
+});
+
+// ===== 模型密钥保存 =====
+async function refreshSettingsFull() {
+  refreshGoals();          // 第 16 条：设置页要能直接增删目标、切换核心
+  refreshSettingsHub();    // 第 7 条：设置中枢
+  refreshFreeTier();       // 官方免费额度通道
+  const d = await api('/v1/providers');
+  if (!d.ok) return;
+  const tb = $('#provTable tbody');
+  tb.innerHTML = d.providers.map(p =>
+    '<tr><td><span style="color:' + p.color + ';font-weight:700">●</span> ' + esc(p.name) + ' (' + esc(p.env) + ')</td>' +
+    '<td>' + (p.hasKey ? esc(p.keyMask) : '<span style="color:#f59e0b">未配置</span>') + '</td>' +
+    '<td>' + esc(p.model) + '</td>' +
+    '<td><span class="chip ' + (p.hasKey ? 'running' : 'paused') + '">' + (p.hasKey ? '已就绪' : '待配置') + '</span></td></tr>'
+  ).join('');
+  $('#keysArea').value = d.providers.map(p => '### ' + p.name + '\n' + p.env + '=').join('\n');
+  $('#updVer').textContent = S ? S.version : '—';
+}
+
+// ===== 第 7 条：设置中枢（注册表驱动）=====
+// 【为什么 UI 由注册表生成，而不是手写卡片】
+// 原设置页只有 6 张手写卡片，全系统 18 个被读取的设置项里只能配 4 个。
+// 手写的必然漏：加一个功能读了新设置，却忘了在页面加输入框，就变成管理盲区。
+// 现在 UI 从 GET /v1/settings/registry 渲染：
+//   加一个设置项只需在 core/settings-registry.js 加一行声明，
+//   页面自动出现，且覆盖率接口会把"被读取却无法配置"的键主动报出来。
+let SET_ITEMS = [], SET_GROUPS = [], SET_SHOW_ADV = false;
+
+async function refreshSettingsHub() {
+  const adv = SET_SHOW_ADV ? 1 : 0;
+  let d;
+  try { d = await api('/v1/settings/registry?advanced=' + adv); } catch (e) { return; }
+  if (!d || !d.ok) return;
+  SET_ITEMS = d.items || [];
+  SET_GROUPS = d.groups || [];
+
+  // 覆盖率 + 体检
+  try {
+    const cov = await api('/v1/settings/coverage');
+    const el = $('#setHubCoverage');
+    if (el && cov) {
+      el.textContent = (cov.missing && cov.missing.length)
+        ? ('⚠ ' + cov.missing.length + ' 项管理盲区')
+        : (I18N.t('set.covOk') + ' ' + cov.rate + '%');
+      el.style.color = (cov.missing && cov.missing.length) ? '#f59e0b' : '';
+    }
+  } catch (e) {}
+  try {
+    const h = await api('/v1/settings/health');
+    const box = $('#setHealth');
+    if (box && h) {
+      box.innerHTML = (h.problems || []).length
+        ? h.problems.map(p =>
+            '<div class="set-problem ' + p.level + '">' +
+            (p.level === 'error' ? '⛔ ' : '⚠️ ') + esc(p.text) +
+            (p.key === 'alertEmail' ? ' <button class="btn ghost tiny" data-focus-set="alertEmail">' + esc(I18N.t('set.goFix')) + '</button>' : '') +
+            (p.key === 'receive' ? ' <button class="btn ghost tiny" data-focus-set="receiveAccount">' + esc(I18N.t('set.goFix')) + '</button>' : '') +
+            '</div>').join('')
+        : '<div class="set-problem ok">✓ ' + esc(h.verdict) + '</div>';
+    }
+  } catch (e) {}
+
+  const box = $('#setGroups');
+  if (!box) return;
+  // 语言卡已有独立下拉框，这里跳过避免出现两个语言选择器
+  const SKIP = { lang: 1, sound: 1, provider: 1, theme: 1, goals: 1 };
+  box.innerHTML = SET_GROUPS.map(g => {
+    const items = SET_ITEMS.filter(x => x.group === g.key && !SKIP[x.key]);
+    if (!items.length) return '';
+    return '<div class="set-group"><div class="set-group-t">' + esc(g.icon) + ' ' + esc(I18N.t('grp.' + g.key) || g.label) + '</div>'
+      + items.map(x => setRowHtml(x)).join('') + '</div>';
+  }).join('');
+}
+
+function setRowHtml(x) {
+  const id = 'setf_' + x.key;
+  const lab = '<label class="set-l" for="' + id + '" title="' + esc(x.desc || '') + '">'
+    + esc(I18N.t('setk.' + x.key) || x.label)
+    + (x.critical ? ' <span class="chip warn">关键</span>' : '')
+    + (x.money ? ' <span class="chip money">涉资金</span>' : '')
+    + '</label>';
+  const hint = '<div class="set-d">' + esc(I18N.t('setd.' + x.key) || x.desc || '') + '</div>';
+  let ctl;
+  if (x.type === 'bool') {
+    ctl = '<label class="switch-row" style="margin:0"><input type="checkbox" id="' + id + '" data-setk="' + x.key + '"' + (x.value ? ' checked' : '') + '><span class="sw"></span></label>';
+  } else if (x.type === 'select') {
+    const opts = x.options && x.options.length
+      ? x.options.map(o => '<option value="' + esc(o) + '"' + (o === x.value ? ' selected' : '') + '>' + esc(I18N.t('seto.' + o) || o) + '</option>').join('')
+      : '';
+    ctl = '<select class="ipt" id="' + id + '" data-setk="' + x.key + '" style="max-width:210px">' + opts + '</select>';
+  } else if (x.type === 'secret') {
+    ctl = '<input class="ipt" id="' + id + '" data-setk="' + x.key + '" type="password" placeholder="'
+      + esc(x.configured ? (x.mask || '已配置') : I18N.t('set.notSet')) + '" style="max-width:210px">'
+      + '<span class="sub">' + (x.configured ? esc(I18N.t('set.configured')) : esc(I18N.t('set.notSet'))) + '</span>';
+  } else {
+    const t = (x.type === 'number') ? 'number' : (x.type === 'email' ? 'email' : 'text');
+    ctl = '<input class="ipt" id="' + id + '" data-setk="' + x.key + '" type="' + t + '" value="' + esc(x.value === null || x.value === undefined ? '' : x.value) + '"'
+      + (x.min !== undefined && x.min !== null ? ' min="' + x.min + '"' : '')
+      + (x.max !== undefined && x.max !== null ? ' max="' + x.max + '"' : '')
+      + ' style="max-width:210px">';
+  }
+  return '<div class="set-row" data-key="' + x.key + '">' + lab + ctl + hint + '</div>';
+}
+
+// 保存：收集改动 → POST /v1/settings → 回显被拒绝的项
+async function saveSettingsHub() {
+  const patch = {};
+  $$('[data-setk]').forEach(el => {
+    const k = el.dataset.setk;
+    if (el.type === 'checkbox') patch[k] = el.checked;
+    else if (el.value !== '') patch[k] = el.value;
+  });
+  if (!Object.keys(patch).length) { toast(I18N.t('set.noChange'), ''); return; }
+  // 涉资金的改动要二次确认：这类设置错了会直接影响真金白银
+  const moneyKeys = SET_ITEMS.filter(x => x.money && patch[x.key] !== undefined).map(x => x.key);
+  if (moneyKeys.length) {
+    const ok = await confirmBox(I18N.t('set.moneyConfirm') + '\n' + moneyKeys.join(', '));
+    if (!ok) return;
+  }
+  const r = await api('/v1/settings', { method: 'PATCH', body: JSON.stringify(patch) });
+  if (!r) return;
+  if (r.rejected && r.rejected.length) {
+    toast(I18N.t('set.rejected') + '：' + r.rejected.map(x => (x.label || x.key) + ' ' + x.error).join('；'), 'err');
+  } else {
+    toast(I18N.t('set.savedAll'), 'ok');
+  }
+  refreshSettingsHub();
+}
+
+$('#setReloadBtn') && ($('#setReloadBtn').onclick = () => refreshSettingsHub());
+$('#setAdv') && ($('#setAdv').onchange = e => { SET_SHOW_ADV = e.target.checked; refreshSettingsHub(); });
+// 「去修复」按钮：滚到对应设置项并聚焦
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-focus-set]');
+  if (!b) return;
+  const k = b.getAttribute('data-focus-set');
+  const row = document.querySelector('[data-key="' + k + '"]');
+  if (!row) { toast(I18N.t('set.notInPage'), ''); return; }
+  row.scrollIntoView({ block: 'center' });
+  const inp = row.querySelector('[data-setk]');
+  if (inp && inp.focus) inp.focus();
+});
+$('#keysBtn') && ($('#keysBtn').onclick = async () => {
+  const txt = $('#keysArea').value;
+  const keys = {};
+  txt.split(/\r?\n/).forEach(ln => {
+    const t = ln.trim();
+    if (!t || t.startsWith('#') || t.startsWith(';')) return;
+    const i = t.indexOf('=');
+    if (i > 0) keys[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+  });
+  const d = await api('/v1/settings/keys', { method: 'POST', body: JSON.stringify(keys) });
+  if (d.ok) { toast('密钥已保存（' + d.wrote + ' 条），通道自动点亮', 'ok'); refreshSettingsFull(); poll(); }
+  else toast('保存失败：' + d.error, 'bad');
+});
+async function refreshSettings() {
+  $('#updVer').textContent = S ? S.version : '—';
+}
+
+// ===== 自我更新 =====
+$('#updBtn') && ($('#updBtn').onclick = async () => {
+  $('#updBtn').textContent = '检查中…';
+  const d = await api('/v1/update/check');
+  $('#updBtn').textContent = '检查更新';
+  if (d.hasUpdate) {
+    $('#updNote').textContent = '发现新版本 v' + d.latest + '，当前 v' + d.current;
+    toast('发现新版本 ' + d.latest, 'ok');
+  } else {
+    $('#updNote').textContent = '当前已是最新版本 v' + d.current + '（' + (d.note || '') + '）';
+    toast('已是最新版本', 'ok');
+  }
+});
+
+// ===== 大脑实验室 =====
+// ===== 全模块记忆·学习·进化中枢（第 8 条）=====
+// 需求：要的是"全部项目中所有功能模块程序的记忆学习进化的中心"，不只是 skill。
+// 这里把 memory-hub 的四维数据铺开：沉淀量 / 验证率 / 近7天活跃 / 退化告警。
+// 退化告警是刻意做的——一个只会显示"已学习 N 条"的学习面板，
+// 分不清"学得多"和"学得动"，等于没做。
+function renderMHub(d) {
+  const st = $('#mhubStats');
+  if (!st || !d) return;
+  const t = d.totals;
+  // 累计/行数/读不懂 三档分开报。
+  // 原来只有一个"累计 N 条"，而那个 N 是被 slice(0,200) 截断后的假数
+  // （真实库 1524 行只报 906 条）。现在把库里有、中枢读懂、读不懂都摆出来，
+  // 用户才能判断这个数字可不可信。
+  st.innerHTML =
+    '<div class="stat"><div class="stat-v">' + t.entries + '</div><div class="stat-l">可读学习条目</div></div>'
+    + (t.rows !== t.entries
+      ? '<div class="stat"><div class="stat-v" title="库里实际存了多少行">' + t.rows + '</div><div class="stat-l">库中共 ' + t.rows + ' 行</div></div>'
+      : '')
+    + (t.unparsed
+      ? '<div class="stat"><div class="stat-v warn" title="库里存了但中枢读不出结构，未计入累计">' + t.unparsed + '</div><div class="stat-l">读不懂的行</div></div>'
+      : '')
+    + '<div class="stat"><div class="stat-v">' + t.modules + '<span class="stat-x">/' + t.sources + '</span></div><div class="stat-l">覆盖模块</div></div>'
+    + '<div class="stat"><div class="stat-v">' + t.recent7 + '</div><div class="stat-l">近 7 天新增</div></div>'
+    + (t.verifyRate !== null
+      ? '<div class="stat"><div class="stat-v' + (t.verifyRate >= 60 ? ' ok' : t.verifyRate >= 30 ? '' : ' bad') + '">' + t.verifyRate + '%</div><div class="stat-l">验证率 ' + t.verified + '/' + t.verifiable + '</div></div>'
+      : '')
+    + (t.failed ? '<div class="stat"><div class="stat-v bad" title="明确标记为失败的经验——这类最该被看见">' + t.failed + '</div><div class="stat-l">失败经验</div></div>' : '')
+    + (t.pending ? '<div class="stat"><div class="stat-v warn">' + t.pending + '</div><div class="stat-l">待验证结论</div></div>' : '');
+
+  const al = $('#mhubAlerts');
+  const zero = d.zeroModules || [], unp = d.unparsedFields || [];
+  const zeroHtml = zero.length
+    ? '<div class="mh-warn">尚无沉淀的模块（模块存在，但一条学习产出都没有）：'
+      + zero.map(m => esc(m.label) + '<span class="mh-zero-rows">' + m.rows + ' 行</span>').join('、') + '</div>'
+    : '';
+  const unpHtml = unp.length
+    ? '<div class="mh-warn">中枢读不懂的行（未计入累计，属盲区）：'
+      + unp.slice(0, 6).map(f => esc(f.label) + '·' + esc(f.field) + ' ' + f.unparsed + ' 行').join('、')
+      + (unp.length > 6 ? ' 等 ' + unp.length + ' 个字段' : '') + '</div>'
+    : '';
+  al.innerHTML = ((d.alerts && d.alerts.length)
+    ? '<div class="mh-alert">⚠ <b>退化告警</b>' + d.alerts.map(a => esc(a.label) + '：' + esc(a.msg)).join('；') + '</div>'
+    : '<div class="mh-ok">✓ 所有有产出的模块近 7 天均有新增，进化未停滞</div>') + zeroHtml + unpHtml;
+
+  // 筛选下拉 + 模块卡：**12 个来源一个都不能少**。
+  // 原来只渲染"有产出"的模块，于是技能军械库（真·0 产出）在界面上整个消失，
+  // 用户分不清"还没学会"和"没这个模块"。零产出模块现在也画出来，标灰并写明行数。
+  const sel = $('#mhubMod');
+  const allMods = d.modules.concat((d.zeroModules || []).map(m => ({
+    mod: m.mod, label: m.label, total: 0, recent7: 0, verified: 0, verifiable: 0, failed: 0,
+    verifyRate: null, stale: false, zero: true, rows: m.rows, desc: m.desc
+  })));
+  if (sel && sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">全部模块</option>' + allMods.map(m =>
+      '<option value="' + esc(m.mod) + '">' + esc(m.label) + '（' + m.total + '）</option>').join('');
+  }
+  const cur = sel ? sel.value : '';
+  const mods = cur ? allMods.filter(m => m.mod === cur) : allMods;
+  $('#mhubMods').innerHTML = mods.map(m =>
+    '<div class="mh-card' + (m.stale ? ' stale' : '') + (m.zero ? ' zero' : '') + '">'
+    + '<div class="mh-top"><b>' + esc(m.label) + '</b><span class="mh-num">' + m.total + ' 条</span></div>'
+    + '<div class="mh-bar"><i style="width:' + (m.zero ? 0 : Math.min(100, Math.round(m.recent7 / Math.max(1, d.totals.recent7) * 100))) + '%"></i></div>'
+    + '<div class="mh-meta">' + (m.zero
+      ? '尚无学习产出' + (m.rows ? '（库里有 ' + m.rows + ' 行但读不出结构）' : '（字段为空）')
+      : '近 7 天 +' + m.recent7
+        + (m.verifyRate !== null ? ' · 验证率 ' + m.verifyRate + '%' : '')
+        + (m.failed ? ' · 失败 ' + m.failed : '')
+        + (m.stale ? ' · <b class="bad">近 7 天无新增</b>' : '')) + '</div></div>'
+  ).join('');
+
+  $('#mhubNote').textContent = cur ? '仅显示「' + (mods[0] ? mods[0].label : cur) + '」' : '点击模块可筛选';
+  const list = (d.latest || []).filter(x => !cur || x.mod === cur).slice(0, 25);
+  $('#mhubList').innerHTML = list.map(x =>
+    '<div class="mh-item">'
+    + '<span class="mh-src">' + esc(x.label) + '</span>'
+    + (x.verified === true ? '<span class="mh-v ok">✓已验证</span>'
+      : x.verified === false ? '<span class="mh-v bad">✗未通过</span>' : '')
+    + '<span class="mh-body">' + esc(x.body) + '</span>'
+    + '<span class="mh-time">' + (x.at ? new Date(x.at).toLocaleDateString() : '') + '</span>'
+    + '</div>'
+  ).join('') || '<div class="text-muted" style="padding:10px 0">该模块暂无学习记录</div>';
+}
+function refreshMHub() {
+  return api('/v1/memory-hub').then(d => renderMHub(d.dashboard)).catch(() => {});
+}
+$('#mhubMod') && ($('#mhubMod').addEventListener('change', () => refreshMHub()));
+
+// ===== 创作工坊（第 14 条：音视频 / 游戏 / 音乐）=====
+// gamestudio 后端早就存在但前端没入口，这次补上；音乐模块为本次新增。
+// 三者都遵循同一条诚实原则：产出要么是真实文件，要么明确报"未生成 + 缺什么"，
+// 不返回占位内容假装成功。
+let MUS_CAP = null;
+function refreshStudioHub() {
+  // 音乐能力
+  api('/v1/music/capability').then(c => {
+    MUS_CAP = c;
+    const fill = (sel, items, valKey, labelKey) => {
+      const e = $(sel);
+      if (e && !e.options.length) e.innerHTML = items.map(x => '<option value="' + x[valKey] + '">' + x[labelKey] + '</option>').join('');
+    };
+    fill('#musScale', c.scales, 'key', 'name');
+    fill('#musProg', c.progressions, 'key', 'name');
+    fill('#musVoice', c.voices, 'key', 'name');
+    $('#musNote').textContent = c.elementCount + ' 项制作要素 · ' + c.voiceCount + ' 音色 · ' + c.scales.length + ' 调式 · ' + c.progressions.length + ' 和声进行 · 输出 ' + c.output;
+    $('#musElements').innerHTML = '<div class="mus-el-h">20+ 制作要素（全部有真实算法，非占位）</div>'
+      + c.elements.map(e => '<span class="mus-el" title="' + esc(e.desc) + '">' + esc(e.name) + '</span>').join('');
+  }).catch(() => {});
+  // 游戏引擎
+  api('/v1/game/engines').then(d => {
+    if (d && d.engines) $('#gmNote').textContent = '可用引擎：' + (d.engines.map(e => e.name || e.id || e).join(' · '));
+  }).catch(() => {});
+  api('/v1/studio/capability').then(c => {
+    if (c && c.ok !== false) {
+      const miss = (c.missing || []).join('、');
+      $('#svNote').textContent = (c.honest || c.note || '') + (miss ? ' 缺依赖：' + miss + '（缺失环节会如实报告，不会伪造产物）' : '');
+    }
+  }).catch(() => {});
+  // 历史作业
+  api('/v1/music/jobs?limit=12').then(d => {
+    if (d && d.jobs) {
+      $('#musJobs').innerHTML = d.jobs.length ? '<div class="mus-el-h">历史作业</div>' + d.jobs.map(j =>
+        '<div class="mus-job"><b>' + esc(j.scaleName + ' / ' + j.progressionName) + '</b>'
+        + '<span>' + j.bpm + 'BPM · ' + j.durationSec + 's · ' + (j.bytes / 1048576).toFixed(1) + 'MB</span>'
+        + '<span class="sub">' + esc(j.root + ' · ' + j.mood) + '</span></div>').join('') : '';
+    }
+  }).catch(() => {});
+  api('/v1/game/jobs?limit=12').then(d => {
+    if (d && d.jobs) {
+      $('#gmJobs').innerHTML = d.jobs.length ? '<div class="mus-el-h">历史构建</div>' + d.jobs.map(j =>
+        '<div class="mus-job"><b>' + esc(j.idea ? String(j.idea).slice(0, 40) : (j.id || '')) + '</b>'
+        + '<span>' + esc(j.engine || '') + ' · ' + (j.ok === false ? '失败' : '完成') + '</span></div>').join('') : '';
+    }
+  }).catch(() => {});
+}
+$('#musGo') && ($('#musGo').onclick = async () => {
+  const btn = $('#musGo');
+  btn.disabled = true; btn.textContent = '🎼 生成中…';
+  try {
+    const d = await api('/v1/music/produce', { method: 'POST', body: JSON.stringify({
+      bpm: Number($('#musBpm').value) || 96,
+      bars: Number($('#musBars').value) || 8,
+      scale: $('#musScale').value, progression: $('#musProg').value, leadVoice: $('#musVoice').value
+    }) });
+    if (d.ok) {
+      // 直接播放真实产出的音频
+      $('#musPlayer').innerHTML = '<div class="mus-player"><audio controls src="' + (d.audio || '') + '"></audio>'
+        + '<div class="sub">已生成 ' + (d.bytes / 1048576).toFixed(1) + 'MB / ' + d.durationSec + 's · ' + esc(d.root + ' ' + d.scaleName + ' ' + d.progressionName)
+        + ' · 段落 ' + d.sections.map(s => s.name).join('-') + '</div></div>';
+      toast('音乐已生成 ' + d.durationSec + 's', 'ok');
+      refreshStudioHub();
+    } else {
+      $('#musPlayer').innerHTML = '<div class="wb-ok" style="color:#fca5a5;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)">未生成：' + esc(d.error) + '</div>';
+    }
+  } catch (e) { toast('生成失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '🎼 生成';
+});
+$('#gmGo') && ($('#gmGo').onclick = async () => {
+  const idea = ($('#gmIdea').value || '').trim();
+  if (!idea) { toast('先写下游戏点子', 'bad'); return; }
+  const btn = $('#gmGo');
+  btn.disabled = true; btn.textContent = '🎮 构建中…';
+  try {
+    const d = await api('/v1/game/build', { method: 'POST', body: JSON.stringify({ idea }) });
+    const out = $('#gmOut');
+    out.hidden = false;
+    out.textContent = d.ok === false ? ('未构建：' + (d.error || d.detail || '引擎不可用')) : JSON.stringify(d, null, 1).slice(0, 4000);
+    refreshStudioHub();
+  } catch (e) { toast('构建失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '🎮 构建';
+});
+$('#svGo') && ($('#svGo').onclick = async () => {
+  const topic = ($('#svTopic').value || '').trim();
+  if (!topic) { toast('先写选题', 'bad'); return; }
+  const btn = $('#svGo');
+  btn.disabled = true; btn.textContent = '🎬 制作中…（可能数十秒）';
+  try {
+    const d = await api('/v1/studio/produce', { method: 'POST', body: JSON.stringify({ topic }) });
+    const out = $('#svOut');
+    out.hidden = false;
+    out.textContent = typeof d === 'string' ? d : JSON.stringify(d, null, 1).slice(0, 4000);
+  } catch (e) { toast('制作失败：' + (e.message || e), 'bad'); }
+  btn.disabled = false; btn.textContent = '🎬 全流程制作';
+});
+$('#hubRefresh') && ($('#hubRefresh').onclick = () => refreshStudioHub());
+
+async function refreshBrain() {
+  refreshMHub();   // 第 8 条：记忆中枢放在这一屏首位
+  const [mem, lrn, evo, st] = await Promise.all([
+    api('/v1/brain/memory?limit=80'),
+    api('/v1/brain/learn'),
+    api('/v1/brain/evolution'),
+    api('/v1/status')
+  ]);
+  if (mem.ok) {
+    const list = $('#memList');
+    list.innerHTML = mem.memories.length
+      ? mem.memories.map(m => '<div class="mem-item"><div class="mem-t"><span>' + esc(m.key) + '</span><span>' + fmt(m.at) + '</span></div><div class="mem-v">' + esc(m.value) + '</div></div>').join('')
+      : '<div class="sub">大脑暂无记忆 — 输入 /remember 内容 可投喂。</div>';
+    autoscroll(list);
+  }
+  if (lrn.ok) {
+    const max = Math.max(1, ...lrn.learn.map(x => x.rate));
+    $('#learnGrid').innerHTML = lrn.learn.length
+      ? lrn.learn.map(x =>
+        '<div class="lrn"><span class="lrn-t">' + esc(x.provider) + '</span><div class="lrn-bar"><i style="width:' + Math.round(x.rate / max * 100) + '%"></i></div><span class="lrn-v">成功率 ' + x.rate + '% · ' + x.n + '次</span></div>'
+      ).join('')
+      : '<div class="sub">尚未积累学习样本 — 先对话几次即自动生成成功率曲线。</div>';
+  }
+  if (evo.ok) {
+    $('#evoList').innerHTML = evo.evolution.length
+      ? evo.evolution.map(x => '<div class="evo-item"><span class="evo-dot"></span><span>' + esc(x.note) + '</span><span class="evo-time">' + fmt(x.at) + '</span></div>').join('')
+      : '<div class="sub">进化仍处于萌芽 — 系统的每次成功/失败都将沉淀为进化节点。</div>';
+    autoscroll($('#evoList'));
+  }
+}
+$('#memSearchBtn') && ($('#memSearchBtn').onclick = async () => {
+  const q = $('#memQ').value.trim();
+  const d = await api('/v1/brain/recall?q=' + encodeURIComponent(q));
+  if (!d.ok) return;
+  $('#memList').innerHTML = d.memories.length
+    ? d.memories.map(m => '<div class="mem-item"><div class="mem-t"><span>' + esc(m.key) + '</span><span>' + fmt(m.at) + '</span></div><div class="mem-v">' + esc(m.value) + '</div></div>').join('')
+    : '<div class="sub">无匹配记忆。</div>';
+});
+$('#memAddBtn') && ($('#memAddBtn').onclick = () => {
+  const v = prompt('记录一条新记忆：');
+  if (v) api('/v1/brain/memory', { method: 'POST', body: JSON.stringify({ key: 'note', value: v }) }).then(refreshBrain);
+});
+
+// ===== 通用确认框 =====
+function confirmBox(text, fn) {
+  const o = $('#overlay');
+  $('#confirmCard').innerHTML = '<p>' + esc(text) + '</p><div class="confirm-actions"><button class="btn ghost" id="cfNo">取消</button><button class="btn primary" id="cfYes">确定</button></div>';
+  o.hidden = false;
+  $('#cfNo').onclick = () => o.hidden = true;
+  $('#cfYes').onclick = () => { o.hidden = true; fn(); };
+}
+
+// ===== CSV 导出 =====
+async function exportCsv(kind) {
+  const r = await fetch('/v1/' + (kind === 'audit' ? 'audit' : 'decisions') + '?format=csv');
+  if (!r.ok) return toast('导出失败', 'bad');
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = kind + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(kind === 'audit' ? '审计明细 CSV 已导出' : '决策 CSV 已导出', 'ok');
+}
+window.exportCsv = exportCsv;
+
+// ===== 战情室：七段报告 / 发布列车 / 客服工单 / Playbook / 故事工厂 / MCP =====
+async function refreshWar() {
+  refreshWarboard();   // 第 13 条：图表 / 人员脉络 / 场景动态
+  // 用 allSettled：任一子块（如能力探测/模型清单）慢或失败，不再连累整间战情室
+  // 变成"载入失败：network_error"（用户看到的就是这句）。只有全部失败才提示。
+  const rs = await Promise.allSettled([refreshTrain(), refreshTickets(), refreshBatchInfo(), refreshPlaybook(), refreshFoundry(), refreshMCP(), refreshReports()]);
+  const bad = rs.filter(x => x.status === 'rejected');
+  if (bad.length && bad.length === rs.length) toast('战情室载入失败：' + ((bad[0].reason && bad[0].reason.message) || '网络异常'), 'bad');
+}
+
+
+// ===== 以下为从 git 基线(HEAD)恢复的区块：战情室/同在守护/自主发布/初始化 =====
+
+// ---- A: renderAutoSteps (HEAD 788-818) ----
+function renderAutoSteps(st) {
+  const grid = $('#autoStepGrid');
+  if (!grid) return;
+  const cat = st.stepCatalog || [];
+  const rel = (st.reliability && st.reliability.byStep) || [];
+  const lastSteps = (st.last && st.last.steps) || [];
+  if (!cat.length) { grid.innerHTML = '<div class="sub">步骤目录加载中…</div>'; return; }
+  grid.innerHTML = cat.map(s => {
+    const r = rel.find(x => x.id === s.id);
+    const l = lastSteps.find(x => x.id === s.id);
+    const badge = !l ? '<span class="tag">未执行</span>'
+      : l.ok ? '<span class="tag blue">正常</span>'
+      : '<span class="tag violet">失败</span>';
+    const stat = r ? (r.fails ? ' · 累计失败 ' + r.fails + '/' + r.runs : ' · ' + r.runs + ' 次正常 · 均 ' + r.avgMs + 'ms') : '';
+    return '<div class="mod-card" data-apstep="' + esc(s.id) + '" title="点击单独重跑这一步">' +
+      '<b>' + esc(s.label) + ' ' + badge + '<span class="mod-cat">单步重跑</span></b>' +
+      '<span>' + (l ? (l.ok ? '上轮 ' + l.ms + 'ms' : '上轮失败：' + esc((l.err || '').slice(0, 40))) : '等待执行') + stat + '</span></div>';
+  }).join('');
+  grid.querySelectorAll('[data-apstep]').forEach(el => {
+    el.onclick = async () => {
+      const id = el.dataset.apstep;
+      el.style.opacity = '.5';
+      const r = await api('/v1/autopilot/step', { method: 'POST', body: JSON.stringify({ id }) });
+      el.style.opacity = '';
+      if (r && r.ok) {
+        toast('步骤「' + (r.step.label || id) + '」' + (r.step.ok ? '完成 ' + r.step.ms + 'ms' : '失败：' + r.step.err), r.step.ok ? 'ok' : 'err');
+      } else { toast('单步执行失败：' + ((r && r.error) || '未知错误'), 'err'); }
+      refreshAutopilot();
+    };
+  });
+}
+
+// ---- B: autoToggle/Interval 绑定 (HEAD 881-893) ----
+$('#autoToggleBtn') && ($('#autoToggleBtn').onclick = async () => {
+  const on = $('#autoToggleBtn').textContent.indexOf('暂停') >= 0;
+  const r = on
+    ? await api('/v1/autopilot/pause', { method: 'POST', body: JSON.stringify({ reason: '界面手动暂停' }) })
+    : await api('/v1/autopilot/resume', { method: 'POST' });
+  if (r && r.ok) { toast(on ? '自主运营已暂停' : '自主运营已恢复', 'ok'); refreshAutopilot(); }
+  else toast('操作失败：' + ((r && r.error) || '未知'), 'err');
+});
+$('#autoInterval') && ($('#autoInterval').onchange = async e => {
+  const r = await api('/v1/autopilot/interval', { method: 'POST', body: JSON.stringify({ sec: Number(e.target.value) }) });
+  if (r && r.ok) { toast('节奏已改为每 ' + Math.round(r.intervalSec / 60) + ' 分钟', 'ok'); refreshAutopilot(); }
+  else { toast('节奏设置失败：' + ((r && r.error) || '未知'), 'err'); refreshAutopilot(); }
+});
+
+// ---- C: autopub 引擎 (HEAD 896-996) ----
+// ===== 自主发布引擎（L1 浏览器自主：拟稿 → 真实发布，绝不伪造）=====
+let _apbPlats = [];
+async function refreshAutoPub() {
+  try {
+    const d = await api('/v1/autopub/overview');
+    if (!d.ok) return;
+    _apbPlats = d.list || [];
+    const sel = $('#apbPlatform');
+    if (sel) {
+      const cur = sel.value || (_apbPlats[0] && _apbPlats[0].platform);
+      sel.innerHTML = _apbPlats.map(p => '<option value="' + p.platform + '">' + esc(p.name) + (p.last && p.last.ok ? ' · 最后成功' : '') + '</option>').join('');
+      if (cur) sel.value = cur;
+    }
+    renderApbAssets().catch(() => {});
+    const cur = (sel && sel.value) || (_apbPlats[0] && _apbPlats[0].platform) || '';
+    const lg = cur && await api('/v1/autopub/log', { method: 'POST', body: JSON.stringify({ platform: cur }) });
+    const el = $('#apbLog');
+    if (el) el.textContent = (lg && lg.ok) ? (lg.log.map(r => fmt(r.at) + ' [' + r.type + '] ' + (r.ok ? '✓' : '✗') + ' ' + (r.title || '') + (r.url ? ' → ' + r.url : '') + (r.detail ? ' · ' + r.detail : '')).join('\n') || '暂无记录') : '暂无记录';
+    const rs = $('#apbResult');
+    if (rs && !rs.dataset.pinned) rs.textContent = _apbPlats.map(p => '平台 ' + p.name + '：已记录 ' + p.logCount + ' 条' + (p.last ? '，最近 ' + fmt(p.last.at) + (p.last.ok ? ' ✓' : ' ✗ ' + (p.last.detail || '')) : '')).join(' ｜ ');
+  } catch (e) {}
+}
+async function renderApbAssets() {
+  const d = await api('/v1/autopub/assets');
+  const box = $('#apbAssets');
+  const pick = $('#apbAssetPick');
+  if (!box) return;
+  if (d.ok && d.assets && d.assets.length) {
+    const max = 32;
+    box.innerHTML = d.assets.slice(0, max).map(a => '<div style="margin:2px 0"><code style="cursor:pointer" data-file="' + esc(a.file) + '" data-title="' + esc(a.title) + '" onclick="autopubPickAsset(this)">📄 ' + esc(a.title) + '</code></div>').join('');
+    if (pick) {
+      pick.innerHTML = '<option value="">从在库内容资产取料…</option>' + d.assets.slice(0, max).map(a => '<option value="' + esc(a.file) + '">' + esc(a.title) + '</option>').join('');
+    }
+  } else {
+    box.innerHTML = '<div>暂无在库资产 — 等指挥塔先产出（或点「▶ 立即跑一轮」）。</div>';
+  }
+}
+async function autopubPickAsset(el) {
+  const title = el.getAttribute && (el.getAttribute('data-title') || '');
+  const file = el.getAttribute && (el.getAttribute('data-file') || '');
+  if (!file) { const v = el && el.value || ''; if (!v) return; }
+  const fn = file || (el && el.value);
+  const d = await api('/v1/autopub/assets');
+  if (!d.ok || !d.assets) return;
+  const a = (d.assets || []).find(x => x.file === fn || x.title === fn);
+  if (!a) return;
+  $('#apbTitle').value = a.title;
+  $('#apbBody').value = a.body;
+  toast('已取料：' + a.title.slice(0, 30), 'ok');
+}
+function initAutoPub() {
+  const sel = $('#apbPlatform');
+  if (!sel) return;
+  $('#apbStatusBtn') && ($('#apbStatusBtn').onclick = refreshAutoPub);
+  $('#apbLoginCheck') && ($('#apbLoginCheck').onclick = async () => {
+    const pl = $('#apbPlatform').value;
+    const rs = $('#apbResult');
+    rs.dataset.pinned = '1';
+    rs.textContent = '正在探测 ' + pl + ' 登录态（真实打开浏览器）…';
+    const d = await api('/v1/autopub/status', { method: 'POST', body: JSON.stringify({ platform: pl }) });
+    rs.dataset.pinned = '';
+    rs.textContent = '『' + (d.name || pl) + '』登录态：' + (d.logged ? '✅ 在线 — 可自动发布' : '❌ 未登录 — 需人工扫码登录一次后自动接管') + (d.at ? '（' + fmt(d.at) + '）' : '');
+  });
+  $('#apbNext') && ($('#apbNext').onclick = async () => ApbPub(false));
+  $('#apbPublish') && ($('#apbPublish').onclick = async () => ApbPub(true));
+  // 展示 dry-run 标记联动
+  $('#apbDry') && ($('#apbDry').onchange = () => {
+    $('#apbDryTag').textContent = $('#apbDry').checked ? '(dry-run)' : '';
+  });
+  const sub = $('#apbPublish');
+  const dry = $('#apbDry');
+  const syncRealTag = () => { if ($('#apbRealTag')) $('#apbRealTag').textContent = dry.checked ? '' : '(真发)'; };
+  if (dry) { dry.onchange = () => { $('#apbDryTag').textContent = dry.checked ? '(dry-run)' : ''; syncRealTag(); }; syncRealTag(); }
+  if (sub) sub.title = '仅在你已核实拟稿内容无误后使用；发布会真实执行并记录 URL';
+  // 进 tab-auto 时刷新
+  $$('.nav-item[data-tab="auto"]').forEach(a => a.addEventListener('click', () => refreshAutoPub().catch(() => {})));
+  refreshAutoPub().catch(() => {});
+}
+async function ApbPub(isPublish) {
+  const platform = $('#apbPlatform').value;
+  const title = $('#apbTitle').value.trim();
+  const body = $('#apbBody').value.trim();
+  const dryRun = !isPublish && $('#apbDry').checked;
+  if (!title || !body) { toast('请先填标题与正文', 'bad'); return; }
+  const rs = $('#apbResult');
+  rs.dataset.pinned = '1';
+  rs.textContent = '正在「' + (dryRun ? '拟稿' : '真实发布') + '」到 ' + platform + '（打开浏览器执行）…';
+  try {
+    const d = await api('/v1/autopub/publish', { method: 'POST', body: JSON.stringify({ platform, draft: { title, body }, dryRun }) });
+    rs.dataset.pinned = '';
+    rs.textContent = d.ok
+      ? (d.dryRun ? '✅ 已拟稿到平台（未点击发布），核实后点「真实发布」' : '✅ 已真实发布：' + (d.url || platform))
+      : '❌ ' + (d.reason || d.error || '执行失败（未伪造成功）');
+    if (!d.ok) toast('发布失败：' + (d.reason || '未登录或 DOM 变更'), 'bad');
+    else toast(d.dryRun ? '拟稿完成' : '已真实发布', 'ok');
+  } catch (e) {
+    rs.dataset.pinned = '';
+    rs.textContent = '❌ ' + (e.message || '执行异常（未伪造成功）');
+  }
+  refreshAutoPub().catch(() => {});
+}
+
+// ---- D: 战情室函数体 (HEAD 1589-1856) ----
+// —— 七段决策报告（FINAL-1.1 §2.2）——
+async function refreshReports() {
+  const d = await api('/v1/report/list?limit=5');
+  if (!d.ok) throw new Error(d.error || 'report/list 失败');
+  const el = $('#reportResult');
+  el.hidden = false;
+  el.innerHTML = (d.list || []).length
+    ? '最近 ' + d.list.length + ' 份七段报告：<br>' + d.list.map(r =>
+        '<a href="/verify/' + encodeURIComponent(r.id) + '" style="color:var(--ac,#1f6feb);text-decoration:none" target="_blank">#' + r.id + '</a> ' + esc(r.topic) + ' · 危机=' + (r.crisis ? '⚠' : '否') + ' · 灯角 ' + (r.lights || 0) + ' · ' + fmt(r.at)).join('<br>')
+    : '暂无报告——战情室上方输入主题生成第一份。';
+}
+$('#reportGo').onclick = () => {
+  const topic = $('#reportTopic').value.trim();
+  if (!topic) return toast('请填写主题', 'bad');
+  $('#reportResult').hidden = false;
+  $('#reportResult').textContent = '推演中…';
+  api('/v1/report/seven', { method: 'POST', body: JSON.stringify({ topic, answer: $('#reportAnswer').value.trim() }) })
+    .then(d => {
+      const r = d.report || d;
+      $('#reportResult').textContent = d.ok
+        ? '【七段报告】(' + r.version + ') 卦=' + r.gua + ' · 危机=' + r.crisis + ' · 灯角 ' + r.lights + ' 盏 · #' + r.id + '\n\n' + r.content
+        : (d.error || '生成失败');
+    })
+    .catch(e => toast('报告失败：' + e.message, 'bad'));
+};
+
+// —— E4 发布列车 ——
+async function refreshTrain() {
+  const d = await api('/v1/train');
+  if (!d.ok) throw new Error(d.error || 'train 失败');
+  const b = d.board || d;
+  const s = b.current.slots;
+  $('#trainHead').textContent = '🚂 发布列车（E4）· 第 ' + b.current.no + ' 班 ' + (b.current.released ? '已发车' : '装载中') + ' · 双周一班';
+  const lotRows = (b.parkinglot || []).map(p =>
+      '<div style="margin-top:3px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<span>🅿️ ' + esc(p.idea) + (p.target && p.target !== 'next' ? ' · 目标 ' + esc(p.target) : '') + '</span>' +
+      '<button class="btn ghost" style="padding:0 6px" onclick="lotTake(\'' + p.id + '\',\'growth\')">装增长</button>' +
+      '<button class="btn ghost" style="padding:0 6px" onclick="lotTake(\'' + p.id + '\',\'retention\')">装留存</button>' +
+      '<button class="btn ghost" style="padding:0 6px" onclick="lotTake(\'' + p.id + '\',\'debt\')">装还债</button>' +
+      '</div>').join('');
+  $('#trainBox').innerHTML =
+    '<div>🚂 三格装载：增长件 = ' + (s.growth ? esc(s.growth.title) : '空') + ' · 留存件 = ' + (s.retention ? esc(s.retention.title) : '空') + ' · 还债件 = ' + (s.debt ? esc(s.debt.title) : '空') + '</div>' +
+    '<div style="margin-top:4px">🅿️ parking lot ' + b.lotCount + ' 条 · 欠账 ' + (b.techDebt || []).length + ' 项' + ((b.techDebt || []).length ? '（' + esc(b.techDebt[0]) + '）' : '') + '</div>' +
+    (lotRows || '<div style="opacity:.5;font-size:12px">parking lot 空——记入的每一条都有它的班次。</div>') +
+    b.history.filter(h => h && h.no).map(h => '<div style="opacity:.75;font-size:12px">班 ' + h.no + ' · ' + (h.slots && h.slots.growth ? esc(h.slots.growth.title) : '已发车') + (h.releasedAt ? ' · ' + fmt(h.releasedAt) : '') + '</div>').join('');
+  $('#trainResult').hidden = false;
+  $('#trainResult').textContent = b.history.length ? '历史记录 ' + b.history.length + ' 班 · 提取想法的班次在 "历史记录" 上方的 lot 里标记 taken' : '首班在装。';
+}
+window.lotTake = function (id, slot) {
+  api('/v1/train/lot', { method: 'POST', body: JSON.stringify({ id, slot }) })
+    .then(d => { if (d.ok) { toast('已从 lot 提取装车 ' + d.slot + ' 格（' + d.title + '）', 'ok'); refreshTrain(); } else toast(d.error || '提取失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#trainLoad').onclick = () => {
+  const title = $('#trainTitle').value.trim();
+  if (!title) return toast('请填 feature 标题', 'bad');
+  api('/v1/train/load', { method: 'POST', body: JSON.stringify({ slot: $('#trainSlot').value, title }) })
+    .then(d => { if (d.ok) { toast('已装载 ' + title, 'ok'); refreshTrain(); } else toast(d.error || '装载失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#trainDepart').onclick = () => {
+  api('/v1/train/depart', { method: 'POST' })
+    .then(d => { if (d.ok) { toast('第 ' + d.no + ' 班发车，lot 空位已补', 'ok'); refreshTrain(); } else toast(d.error || '发车失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#parkGo').onclick = () => {
+  const idea = $('#parkIdea').value.trim();
+  if (!idea) return toast('请填写想法', 'bad');
+  api('/v1/train/park', { method: 'POST', body: JSON.stringify({ title: idea }) })
+    .then(d => { if (d.ok) { toast('已记入 parking lot', 'ok'); refreshTrain(); } else toast(d.error || '登记失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+
+// —— E3 客服工单 ——
+async function refreshTickets() {
+  const d = await api('/v1/tickets');
+  if (!d.ok) throw new Error(d.error || 'tickets 失败');
+  $('#ticketHead').textContent = '🎫 客服工单（E3）· ' + d.stats.open + ' 未结 · SLA 达标 ' + (d.compliance.rate === null ? '本月无 P0/P1' : d.compliance.rate + '%') + ' · 通道 ' + Object.keys(d.channels).length + ' 个';
+  const items = d.list || [];
+  $('#tickBoard').textContent = 'SLA：P0 当日响应 / 72h 结论 · P1 48h · P2 周批（周日）· 站内反馈表是唯一正式源。';
+  $('#tickList').innerHTML = items.length
+    ? items.map(t => '<div class="tick-line" style="padding:4px 0;border-bottom:1px dashed var(--line)">' +
+        '<span class="msg-badge">' + esc(t.prio) + '</span> <b>#' + t.id + '</b> ' + esc(t.subject) +
+        '<div style="font-size:12px;opacity:.75">' + esc(t.msg) + ' · ' + fmt(t.createdAt) + ' · ' + t.status + (t.replied || t.responded ? ' · 已回复' : '') + (t.concluded || t.status === 'closed' ? ' · 已结论' : '') + '</div>' +
+        (t.status === 'open' ? '<button class="btn ghost" style="margin-top:4px" onclick="warRespond(' + t.id + ')">回复</button>' : '') +
+      '</div>').join('')
+    : '<div style="opacity:.6">暂无工单——下方开单即自动分级。</div>';
+}
+$('#tickAdd').onclick = () => {
+  const subject = $('#tickSubject').value.trim();
+  const message = $('#tickMsg').value.trim();
+  if (!subject && !message) return toast('请填写主题或内容', 'bad');
+  api('/v1/tickets', { method: 'POST', body: JSON.stringify({ subject, message, channel: '站内反馈表' }) })
+    .then(d => { if (d.ok) { toast('已开单 #' + d.id + ' · ' + d.prio, 'ok'); refreshTickets(); } else toast(d.error || '开单失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+window.warRespond = function (id) {
+  const m = prompt('回复内容（自动套用温暖模板）：');
+  if (m === null) return;
+  api('/v1/tickets/respond', { method: 'POST', body: JSON.stringify({ id, reply: m }) })
+    .then(d => { if (d.ok) { toast('已回复', 'ok'); refreshTickets(); } else toast(d.error || '回复失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+async function refreshBatchInfo() {
+  try {
+    const d = await api('/v1/tickets/batch/history');
+    if (d.ok && d.history && d.history.length) {
+      $('#tickBatchInfo').textContent = '周批历史：' + d.history.map(h => h.batchId + ' ×' + h.size).join(' · ');
+    }
+  } catch (e) {}
+}
+$('#tickSunday').onclick = () => {
+  api('/v1/tickets/batch/sunday', { method: 'POST' })
+    .then(d => {
+      if (d.ok) { toast('周批聚合完成：' + d.size + ' 个 P2 单进入批阅场（' + d.batchId + '）', 'ok'); refreshTickets(); refreshBatchInfo(); }
+      else toast(d.error || '聚合失败', 'bad');
+    })
+    .catch(e => toast(e.message, 'bad'));
+};
+
+// —— E2 冷启动 Playbook ——
+async function refreshPlaybook() {
+  const d = await api('/v1/playbook');
+  if (!d.ok) throw new Error(d.error || 'playbook 失败');
+  const b = d.board || d;
+  $('#playbookHead').textContent = '🌱 冷启动 Playbook（E2）· ' + (b.current.day === '—' ? '未启动（点启动后今天 = D1）' : b.current.day + '：' + b.current.title);
+  $('#pbDays').innerHTML = (b.phase || []).map(r =>
+    '<div style="margin-top:6px"><b style="font-size:12px">' + esc(r.round) + '</b> · 完成 ' + r.done + '/' + r.total + '</div>').join('');
+  $('#pbGate').textContent = 'D30 门：注册 ≥300 且付费 ≥3（当前 注册 ' + b.gate.reg + ' / 付费 ' + b.gate.paid + '）→ ' + b.gate.note;
+}
+$('#pbLaunch').onclick = () => {
+  api('/v1/playbook/launch', { method: 'POST' })
+    .then(d => { if (d.ok) { toast('Playbook 已启动，今天 = D1', 'ok'); refreshPlaybook(); } else toast(d.error || '启动失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#pbCheck').onclick = () => {
+  api('/v1/playbook/check', { method: 'POST' })
+    .then(d => { if (d.ok) { toast('今日已打卡', 'ok'); refreshPlaybook(); } else toast(d.error || '打卡失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+async function pbTally() {
+  const reg = parseInt($('#pbReg').value || '0', 10);
+  const paid = parseInt($('#pbPaid').value || '0', 10);
+  const d = await api('/v1/playbook/tally', { method: 'POST', body: JSON.stringify({ reg, paid }) });
+  if (!d.ok) return toast(d.error || '录入失败', 'bad');
+  toast('已录入 注册 ' + d.board.gate.reg + ' / 付费 ' + d.board.gate.paid, 'ok');
+  refreshPlaybook();
+}
+$('#pbTallyReg').onclick = pbTally;
+$('#pbTallyPaid').onclick = pbTally;
+
+// —— 故事工厂 ——
+async function refreshFoundry() {
+  const [d, src] = await Promise.all([api('/v1/foundry'), api('/v1/foundry/sources')]);
+  if (!d.ok) throw new Error(d.error || 'foundry 失败');
+  const b = d.board || d;
+  $('#foundryHead').textContent = '🖋️ 故事工厂（FINAL-1.2）· ' + b.total + ' 部 · 已发布 ' + b.published + ' · 井A ' + b.wells.a.length + ' · 井B ' + b.wells.b.length;
+  // 双井下拉（立项素材：井A 已授权灯角 / 井B 已授权公版手册）
+  const welA = $('#fPeerId');
+  if (src.ok && src.sources) {
+    welA.innerHTML = '<option value="">井A 授权灯角…</option>' + src.sources.a.map(x =>
+      '<option value="' + x.id + '">' + esc(x.gua) + ' · G' + x.tier + ' · ' + esc((x.fear || x.text || '').slice(0, 28)) + '</option>').join('');
+    const welB = $('#fManualNo');
+    welB.innerHTML = '<option value="">井B 公版手册…</option>' + src.sources.b.map(x =>
+      '<option value="' + x.id + '">手册 ' + x.id + ' · ' + esc(x.text.slice(0, 36)) + '</option>').join('');
+  }
+  const act = (b.pipeline || []).filter(x => x.count > 0);
+  // 在产作品的逐站推进台
+  const inProd = [];
+  try {
+    const all = await api('/v1/foundry/works');
+    if (all.ok && Array.isArray(all.works)) inProd.push(...all.works.filter(w => !w.published && !/rejected|reid-block/.test(w.station || '')));
+  } catch (e) {}
+  $('#fPipe').innerHTML = inProd.length
+    ? inProd.map(w => {
+        const st = w.station || 'S1';
+        const btn = (label, station, cls) => '<button class="btn ' + (cls || '') + '" style="margin-right:4px" onclick="fAdvance(\'' + w.id + '\',\'' + station + '\')">' + label + '</button>';
+        return '<div style="padding:4px 0;border-bottom:1px dashed var(--line);margin-top:6px">' +
+          '<b>' + esc(w.title) + '</b> · 站 <span class="msg-badge">' + esc(st) + '</span> · ' +
+          (st === 'S3' ? btn('S3 大纲', 'S3') : '') +
+          (st === 'S4' ? btn('S4 人裁决 ✓', 'S4') : '') +
+          (st === 'S5' || st === 'S6' ? btn('S5 草稿', 'S5') + btn('S6 人深度加工', 'S6') : '') +
+          (st === 'S7' ? btn('S7 质检', 'S7') : '') +
+          (st === 'S8' ? btn('S8 人终审', 'S8') : '') +
+          (st === 'S9' ? btn('S9 发布', 'S9', 'primary') : '') +
+          (st === 'S6' && w.rewriteSatisfied === false ? '<span style="color:var(--warn,orange);font-size:12px"> ⚠ 未达 30% 红线</span>' : '') +
+          '</div>';
+      }).join('')
+    : '<div style="opacity:.6;margin-top:6px">暂无在产作品——上方从双井选材立项。</div>';
+  $('#fBoard').innerHTML =
+    '<div>站点分布：' + (act.length ? act.map(x => x.s + '×' + x.count).join(' · ') : '暂无在产（先授权再立项）') + '</div>' +
+    (b.logs && b.logs.length ? '<div style="margin-top:4px;opacity:.75;font-size:12px">创作证据日志 ' + b.logs.length + ' 条（story_creative_log） · 最近：' + esc(String(b.logs[b.logs.length - 1].summary || b.logs[b.logs.length - 1].event || b.logs[b.logs.length - 1].action || '')).slice(0, 90) + '</div>' : '');
+}
+window.fAdvance = function (id, station) {
+  let body = { id, station };
+  if (station === 'S4') { const r = confirm('S4 人裁决：通过大纲？（取消=否决）'); body.approve = r; body.note = r ? '大纲价值观/戏剧性/真实性平衡' : '大纲需返工'; }
+  if (station === 'S5') { body.station = 'S5'; }
+  if (station === 'S6') {
+    const chs = prompt('S6 人深度加工：改写章节数（红线≥30%，如 3）：');
+    if (chs === null) return;
+    body.chapterCount = parseInt(chs || '0', 10);
+    body.rewriteNote = prompt('留存创作证据：你改了什么（例:改写第2章对白/新增结尾转折）：') || '人工深度加工';
+  }
+  if (station === 'S8') {
+    const re = confirm('S8 人终审：交付物能认出自己或同事？（确定=打回，取消=通过）');
+    body.selfRecognize = re; body.colleagueRecognize = re;
+    body.byline = prompt('署名方式：化名改编 / 真实分享）：') || '化名改编';
+  }
+  api('/v1/foundry/advance', { method: 'POST', body: JSON.stringify(body) })
+    .then(d => { if (d.ok) { toast('已推进至 ' + (d.station || station) + (d.verdict ? ' · ' + d.verdict : ''), 'ok'); refreshFoundry(); } else toast(d.error || '推进失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#fCreate').onclick = () => {
+  const peerId = $('#fPeerId').value;
+  const manualNo = $('#fManualNo').value;
+  const title = $('#fTitle').value.trim();
+  if (!peerId || !manualNo) return toast('请先选井A灯角 + 井B手册（先授权，未授权不入井）', 'bad');
+  api('/v1/foundry', { method: 'POST', body: JSON.stringify({
+    peerId, manualNo: Number(manualNo),
+    title,
+    disturbTime: $('#fDt').checked, disturbCity: $('#fDc').checked, disturbJob: $('#fDj').checked, disturbFamily: $('#fDf').checked
+  }) })
+    .then(d => {
+      if (d.ok) { toast('立项成功 #' + d.id + ' · ' + d.station + ' · ' + d.tier, 'ok'); }
+      else toast(d.error || '立项失败', 'bad');
+      refreshFoundry();
+    })
+    .catch(e => toast(e.message, 'bad'));
+};
+
+// —— A13 MCP ——
+async function refreshMCP() {
+  const d = await api('/v1/mcp/stats');
+  if (!d.ok) throw new Error(d.error || 'mcp/stats 失败');
+  $('#mcpStat').textContent = '开发者 ' + d.developers + ' · 活跃 key ' + d.keysActive + ' · 调用 ' + d.uses + ' 次 · 收入 ¥' + d.revenue + ' · 余额池 ¥' + d.balancePool + ' · 边界三不接：医疗/法律/金融投资；转售批量；存用户数据中间平台。verify：https://myongyi.example/report/<id>';
+}
+$('#mcpIssue').onclick = () => {
+  const developer = $('#mcpDev').value.trim();
+  if (!developer) return toast('请填开发者署名', 'bad');
+  const recharge = parseFloat($('#mcpRecharge').value || '0') || 0;
+  api('/v1/mcp/keys', { method: 'POST', body: JSON.stringify({ dev: developer, recharge }) })
+    .then(d => { if (d.ok) { toast('key 已签发：' + d.key, 'ok'); $('#mcpKey').value = d.key; refreshMCP(); } else toast(d.error || '签发失败', 'bad'); })
+    .catch(e => toast(e.message, 'bad'));
+};
+$('#mcpCall').onclick = () => {
+  const key = $('#mcpKey').value.trim();
+  const params = $('#mcpParams').value.trim();
+  if (!key) return toast('请先签发/粘贴 key', 'bad');
+  if (!params) return toast('请填参数（topic / kw / slug）', 'bad');
+  const tool = $('#mcpTool').value;
+  const body = tool === 'case.search' ? { key, tools: tool, kw: params } : tool === 'manual.get' ? { key, tools: tool, slug: params } : { key, tools: tool, topic: params };
+  $('#mcpResult').hidden = false;
+  $('#mcpResult').textContent = '调用中…';
+  api('/v1/mcp/call', { method: 'POST', body: JSON.stringify(body) })
+    .then(d => {
+      if (!d.ok) return $('#mcpResult').textContent = d.error || '调用失败';
+      const r = d.result || d;
+      let out = '';
+      if (r.content) out = r.content;
+      else if (r.cases) out = '🔎 ' + r.cases.map(c => c.text).join('\n') + '\n（共 ' + r.count + ' 条 · 免费水印）';
+      else if (r.manual) out = '📖 手册 ' + r.manual.no + '《' + r.manual.title + '》' + (r.manual.crisis ? '（危机版：12356 置顶）' : '') + '\n步骤：' + r.manual.steps.join(' → ').slice(0, 220);
+      else out = JSON.stringify(r, null, 2).slice(0, 800);
+      $('#mcpResult').textContent = out;
+      if (d.fee != null) toast('本次费用 ¥' + d.fee + (d.balance != null ? ' · 余额 ¥' + d.balance : ''), d.fee ? 'ok' : 'ok');
+      refreshMCP();
+    })
+    .catch(e => toast(e.message, 'bad'));
+};
+
+// ---- E: 同在守护 (HEAD 1858-2071) ----
+// ===== 同在守护：六型人格 / 手册 / 同路人 / 年报止损 / 复用器 =====
+let PER_Q = [];
+let PER_ANSWERS = [];
+
+async function refreshGuard() {
+  // allSettled：单块慢/失败不再让整个"同在守护"报"载入失败：network_error"。只有全部失败才提示。
+  const rs = await Promise.allSettled([refreshPersona(options => { if (!PER_Q.length) PER_Q = options.questions || []; }), refreshManuals(), refreshPeers(), refreshAnnual(), refreshRepurp()]);
+  const bad = rs.filter(x => x.status === 'rejected');
+  if (bad.length && bad.length === rs.length) toast('同在守护载入失败：' + ((bad[0].reason && bad[0].reason.message) || '网络异常'), 'bad');
+}
+
+// —— 4a 六型人格 ——
+async function refreshPersona(cb) {
+  const d = await api('/v1/persona/questions');
+  if (!d.ok) throw new Error(d.error || 'questions 失败');
+  PER_Q = d.questions || [];
+  if (cb) cb(d);
+  const wrap = $('#personaWrap');
+  if (!wrap.querySelector('#personaQs')) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--ink-2);margin-bottom:6px">共 ' + d.total + ' 题，每题 6 个选项（a–f），作答后自动给出六型画像与分享卡。</div>' +
+      '<div id="personaQs" style="max-height:430px;overflow-y:auto"></div>';
+  }
+  $('#personaGo').disabled = false;
+  $('#personaGo').onclick = () => startPersonaTest(false);
+  $('#personaQuick').onclick = () => startPersonaTest(true);
+  $('#guardRefresh').onclick = () => refreshGuard();
+}
+function startPersonaTest(quick) {
+  if (!PER_Q.length) { toast('题库未就绪', 'bad'); return; }
+  const qs = quick ? PER_Q.slice(0, 3) : PER_Q;
+  $('#personaQs').innerHTML = qs.map((q, i) =>
+    '<div class="q-item"><div class="q-s">' + (i + 1) + '. ' + esc(q.s) + '</div>' +
+    q.opts.map((o, j) => '<label class="opt-row"><input type="radio" name="pq' + i + '" value="' + o.t + '"><span>' + esc(o.x) + '</span></label>').join('') +
+    '</div>').join('');
+  $('#personaResult').hidden = true;
+  $('#personaGo').textContent = quick ? '重新出 3 题' : '提交 20 题';
+  $('#personaGo').onclick = () => submitPersona(quick);
+  if (quick) { $('#personaHead').textContent = '🧭 快速抉择（3 题示例）'; }
+  else { $('#personaHead').textContent = '🧭 六型决策人格 · 抉择测试（20 题 · 90 秒）'; }
+}
+async function submitPersona(quick) {
+  const qs = quick ? PER_Q.slice(0, 3) : PER_Q;
+  const answers = qs.map((_, i) => {
+    const el = document.querySelector('input[name="pq' + i + '"]:checked');
+    return el ? el.value : null;
+  });
+  if (answers.some(x => !x)) { toast(quick ? '请先完成 3 题' : '请先完成全部 20 题', 'bad'); return; }
+  const r = await api(quick ? '/v1/persona/quick' : '/v1/persona/test',
+    { method: 'POST', body: JSON.stringify({ answers }) });
+  if (!r.ok) { toast(r.error || '提交失败', 'bad'); return; }
+  const out = r.share || { title: '快速抉择结果', line1: '我的六型底色：' + r.type, adv: r.topAdv };
+  $('#personaResult').hidden = false;
+  $('#personaResult').textContent = '得分：' + JSON.stringify(r.counts) + '\n' +
+    '主导类型：' + r.type + '（' + (r.sub || '') + '）\n' +
+    '建议：' + (r.topAdv || '') + '\n\n【分享卡】\n' + out.line1 + '\n' + (out.line2 || '') + '\n' + (out.adv || '');
+  toast('测试完成 → ' + r.type, 'ok');
+}
+
+// —— 4b 手册 + 危机 ——
+let MANUALS = [];
+async function refreshManuals() {
+  const d = await api('/v1/manuals');
+  if (d.ok) {
+    MANUALS = d.manuals || [];
+    const grid = $('#manualGrid');
+    grid.innerHTML = MANUALS.map(m => {
+      const cls = m.crisis ? 'manual-card crisis' : 'manual-card';
+      return '<div class="' + cls + '" onclick="openManual(' + m.no + ')">' +
+        '<div class="m-no">' + m.no + (m.crisis ? ' · 危机语境 · 只给路不给产品' : (m.commerce === false ? ' · 只给路' : '')) + '</div>' +
+        '<div class="m-title">' + esc(m.title) + '</div>' +
+        '<div class="m-kw">' + (m.keywords || []).slice(0, 4).map(k => '#' + k).join(' ') + '</div>' +
+        '</div>';
+    }).join('');
+  }
+}
+window.openManual = async function openManual(no) {
+  const box = $('#manualOpen');
+  box.hidden = false;
+  const d = await api('/v1/manuals/' + no);
+  if (!d.ok) { box.innerHTML = '<div class="manual-open">' + esc(d.error || '') + '</div>'; return; }
+  const crisisAlert = d.crisis ? '<div class="crisis-band">👉 你打开的是一本特殊手册：首页即转介。如有伤害自己的想法，请先拨打 12356（24h）。</div>' : '';
+  box.innerHTML = '<div class="manual-open">' + crisisAlert +
+    '<div class="manual-open" style="padding:0;border:none;background:none"><b style="font-size:14px">📖 ' + d.no + ' · ' + esc(d.title) + '</b>' +
+    (d.lit && d.lit.quote ? '<div class="m-sec"><b>① 你的感受太正常了</b><br>' + esc(d.lit.quote) + '</div>' : '') +
+    '<div class="m-sec"><b>② 72 小时最小步骤（≤5 条，每条今天可完成）</b><br>' + (d.steps || []).map((s, i) => '☐ ' + esc(s)).join('<br>') + '</div>' +
+    '<div class="m-sec"><b>③ 三件不要做</b><br>' + (d.dont || []).map((s, i) => '✗ ' + esc(s)).join('<br>') + '</div>' +
+    ((d.cases || []).length ? '<div class="m-sec"><b>④ 历史上同局的人后来怎样（案例可查）</b><br>' + d.cases.map(c => '· ' + esc(c.person) + '：' + esc(c.how) + '（' + esc(c.src) + '）').join('<br>') + '</div>' : '') +
+    '<div class="m-sec"><b>⑤ 政策的地板</b><br>' + (d.policy || []).map(s => '· ' + esc(s)).join('<br>') + '</div>' +
+    '<div class="m-sec"><b>⑥ 下一步入口</b><br>' + (d.exit || []).map(s => '→ ' + esc(s)).join('<br>') + '</div>' +
+    '</div></div>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+// —— 4c 同路人 ——
+async function refreshPeers() {
+  const d = await api('/v1/peers/board');
+  if (!d.ok) return;
+  const st = d.stats || {};
+  $('#peerHead').textContent = '🕯️ 同路人（T1 灯角 ' + (st.lightsTotal || 0) + ' 盏 · 本月递出 ' + (st.handoffsMonth || 0) + ' 次 · 被帮到 ' + (st.thankedTotal || 0) + ' 次）';
+}
+async function loadLights() {
+  const topic = $('#peerTopic').value.trim() || '被裁';
+  const g = await api('/v1/peers/gua?topic=' + encodeURIComponent(topic));
+  const d = await api('/v1/peers/lighthouse?gua=' + (g.gua || 'S01'));
+  if (!d.ok) { $('#peerLights').innerHTML = '<div style="font-size:12px;color:var(--ink-2)">' + esc(d.error || '') + '</div>'; return; }
+  $('#peerLights').innerHTML =
+    '<div style="font-size:12px;color:var(--ink-2);margin:4px 0">处在你同卦（' + esc(d.name) + '）的已点亮灯角：</div>' +
+    (d.lights.length === 0
+      ? '<div class="light-card">这一卦还没有灯。走完了的人，回来点第一盏（T1 提交 300 字以内）。——真实的 1 个人 > 编造的 100 个。</div>'
+      : d.lights.map(l =>
+        '<div class="light-card"><span>「' + esc(l.text) + '」</span>' +
+        '<div class="l-actions">被看见 ' + l.viewCount + ' · 帮到 ' + l.helpedCount + ' 人 · <button onclick="viewLight(\'' + l.id + '\')">👁 给我那盏灯添一次被看见</button></div></div>').join(''));
+}
+window.viewLight = async function viewLight(id) {
+  const d = await api('/v1/peers/lighthouse/view', { method: 'POST', body: JSON.stringify({ id }) });
+  if (d.ok) toast('已为那盏灯添 1 次被看见', 'ok');
+};
+async function submitLight() {
+  const text = $('#peerStory').value.trim();
+  const optin = $('#peerOptin').checked;
+  if (!text) { toast('请先写下你的 300 字', 'bad'); return; }
+  const d = await api('/v1/peers/lighthouse', { method: 'POST', body: JSON.stringify({ text, optin, topic: $('#peerTopic').value.trim() || text }) });
+  if (!d.ok) { toast(d.error || '提交失败', 'bad'); return; }
+  toast('已点亮，状态：' + d.status, 'ok');
+  $('#peerStory').value = '';
+  setTimeout(() => refreshPeers(), 300);
+}
+async function doHandoff() {
+  const kind = $('#peerKind').value;
+  const payload = $('#peerPayload').value.trim();
+  const from = $('#peerFrom').value.trim() || 'u_guest';
+  if (!payload) { toast('缺递出内容', 'bad'); return; }
+  const d = await api('/v1/peers/handoff', { method: 'POST', body: JSON.stringify({ kind, payload, gua: $('#peerTopic').value.trim() || '被裁', from }) });
+  if (!d.ok) { toast(d.error || '递出失败', 'bad'); return; }
+  toast('已递出：' + d.payload, 'ok');
+  $('#peerPayload').value = '';
+}
+
+// —— 4d 年报 + 止损线 ——
+async function refreshAnnual() {
+  const [r, s, m] = await Promise.all([
+    api('/v1/annual'), api('/v1/annual/stoploss'), api('/v1/annual/month')
+  ]);
+  if (s.ok) {
+    $('#stopGrid').innerHTML = s.lines.map(l =>
+      '<div class="stop-card' + (l.now.red ? ' red' : '') + '">' +
+      '<div class="s-id">' + l.id + (l.now.red ? ' 🔴' : ' 🟢') + '</div>' +
+      '<div class="s-desc">' + esc(l.desc) + '</div>' +
+      '<div class="s-now">' + esc(JSON.stringify(l.now)) + '</div>' +
+      '<div class="s-act">触发动作：' + esc(l.action) + '</div></div>').join('');
+  }
+  if (r.ok) {
+    const rep = r.report;
+    const scenesText = (rep.scenes || []).map(([k, v]) => k + '×' + v).join(' · ') || '暂无';
+    const typesText = (rep.typeTop || []).map(([k, v]) => k + '×' + v).join(' · ') || '暂无';
+    $('#annualResult').hidden = false;
+    $('#annualResult').textContent = '【《中国人生决策年度报告》公开版 · 小样本观察】于 ' + fmt(rep.generatedAt) + '\n' +
+      '本年度决策样本 n=' + rep.n + ' ｜ 完成任务 ' + rep.tasksDone + ' ｜ 知识沉淀 ' + rep.knowledge + ' 条 ｜ 进化事件 ' + rep.evolutionEvents + '\n' +
+      '分场景：' + scenesText + '\n' +
+      '决策人格分布：' + typesText + '\n' +
+      '近 30 天决策 ' + rep.last30 + ' 次（' + rep.last30distinct + ' 天活跃）\n' +
+      '同路人：灯角 ' + ((rep.lights && Object.values(rep.lights).reduce((a, b) => a + b, 0)) || 0) + ' 盏 · 本月递出 ' + rep.peer.handoffsMonth + ' · 被帮到 ' + rep.peer.helpedAgg + '\n' +
+      '手册开放：' + rep.manuals + ' 本（含危机版）\n' +
+      '—— 建议 ——\n' + (rep.recom || []).map(x => '· ' + x).join('\n') + '\n' +
+      '—— 诚实缺陷板块 ——\n' + (rep.defects || []).map(x => '· ' + x).join('\n');
+  }
+}
+
+// —— 4e 复用器 ——
+async function refreshRepurp() {
+  const d = await api('/v1/repurpose');
+  if (!d.ok) return;
+  const list = d.list || [];
+  $('#repList').innerHTML = list.length === 0
+    ? '<div style="font-size:12px;color:var(--ink-2)">尚未入库素材。喂一条"只生产一次"的真素材，机器负责变形。</div>'
+    : list.map(x =>
+      '<div class="rep-card"><div class="r-head"><b>' + esc(x.source) + '</b>' +
+      '<span class="r-meta">' + x.kind + ' · 变形 ' + x.variants.length + '/5 · 授权 ' + (x.granted || []).join('、') + '</span></div>' +
+      '<div style="font-size:12px;color:var(--ink-2);margin:2px 0 4px">' + esc(x.text) + '…</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      '<button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="runRepurp(\'' + x.id + '\')">一键五吃</button>' +
+      '<button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="grantRepurp(\'' + x.id + '\')">全载体授权</button>' +
+      '</div>' +
+      '<div id="rv-' + x.id + '"></div></div>').join('');
+}
+window.runRepurp = async function runRepurp(id) {
+  const d = await api('/v1/repurpose/run', { method: 'POST', body: JSON.stringify({ id }) });
+  if (!d.ok) { toast(d.error || '复用失败', 'bad'); return; }
+  $('#rv-' + id).innerHTML = d.variants.map(v =>
+    '<div class="variant-row"><div class="v-name">' + esc(v.name) + ' <span style="font-weight:400;color:' + (v.publishable ? '#059669' : '#d97706') + '">[' + (v.publishable ? '可发布' : v.authBoundary) + ']</span></div>' + esc(v.content) + '</div>').join('');
+};
+window.grantRepurp = async function grantRepurp(id) {
+  const d = await api('/v1/repurpose/grant', { method: 'POST', body: JSON.stringify({ id, keys: ['mirror', 'quickq', 'lesson', 'podcast', 'seo'] }) });
+  if (d.ok) toast('授权载体已全部勾选（变形≠授权扩张，可再收紧）', 'ok');
+};
+
+// 同在守护：按钮绑定（含刷新全部）
+document.addEventListener('DOMContentLoaded', () => {
+  const b = id => document.getElementById(id);
+  if (!b('peerLightGet')) return;
+  b('peerLightGet').onclick = () => loadLights().catch(e => toast(e.message, 'bad'));
+  b('peerLightAdd').onclick = () => submitLight().catch(e => toast(e.message, 'bad'));
+  b('peerHandoff').onclick = () => doHandoff().catch(e => toast(e.message, 'bad'));
+b('repFeed').onclick = async () => {
+    const raw = b('repRaw').value;
+    const source = b('repSource').value.trim();
+    const text = b('repText').value.trim();
+    if (!source || !text) { toast('请填来源与素材正文', 'bad'); return; }
+    const d = await api('/v1/repurpose/feed', { method: 'POST', body: JSON.stringify({ raw, source, text }) });
+    if (!d.ok) { toast(d.error || '入库失败', 'bad'); return; }
+    toast('原料已入库（' + d.id + '）', 'ok');
+    b('repText').value = '';
+    refreshRepurp().catch(() => {});
+  };
+  initAutoPub();
+});
+
+// ---- F: init IIFE (HEAD 2073-2118) ----
+
+// ===== 外发触达 =====
+async function refreshOutreach() {
+  try {
+    const channel = ($('#outreachChannel') && $('#outreachChannel').value) || '';
+    const date = ($('#outreachDate') && $('#outreachDate').value) || new Date().toISOString().slice(0, 10);
+    const params = new URLSearchParams();
+    if (channel) params.set('channel', channel);
+    params.set('date', date);
+    
+    const [records, stats] = await Promise.all([
+      api('/v1/outreach/records?' + params.toString()),
+      api('/v1/outreach/stats?' + params.toString())
+    ]);
+    
+    // 配额展示
+    const quotaBox = $('#outreachQuota');
+    if (quotaBox && stats.ok && stats.quota) {
+      const q = stats.quota;
+      const pct = q.limit > 0 ? Math.round(q.used / q.limit * 100) : 0;
+      quotaBox.innerHTML = '<div class="stat" style="border-left:3px solid ' + (pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981') + '"><div class="stat-v">' + q.used + '/' + q.limit + '</div><div class="stat-l">已用/总额</div></div>' +
+        '<div class="stat" style="border-left:3px solid #3b82f6"><div class="stat-v">' + pct + '%</div><div class="stat-l">使用率</div></div>' +
+        '<div class="stat" style="border-left:3px solid #8b5cf6"><div class="stat-v">' + (q.remaining || 0) + '</div><div class="stat-l">剩余额度</div></div>';
+    }
+    
+    // 触达记录表格
+    const tbody = $('#outreachRecordsTbl tbody');
+    if (tbody && records.ok) {
+      const list = records.list || records.records || [];
+      tbody.innerHTML = list.map(r =>
+        '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.leadName || r.lead || '') + '</td>' +
+        '<td>' + esc(r.channel || '') + '</td><td>' + esc(r.status || '') + '</td>' +
+        '<td>' + esc((r.content || r.summary || '').slice(0, 60)) + '</td>' +
+        '<td>' + (r.quotaUsed ? '1' : '0') + '</td><td>' + (r.at ? new Date(r.at).toLocaleString() : '') + '</td></tr>'
+      ).join('') || '<tr><td colspan="7" class="text-muted" style="text-align:center">暂无触达记录</td></tr>';
+    }
+    
+    // 渠道效果统计
+    const statsBox = $('#outreachStats');
+    if (statsBox && stats.ok && stats.byChannel) {
+      statsBox.innerHTML = Object.entries(stats.byChannel).map(([ch, s]) =>
+        '<div class="stat" style="border-left:3px solid #3b82f6;min-width:140px"><div class="stat-v">' + (s.sent || 0) + '</div><div class="stat-l">' + ch + ' 发送</div></div>' +
+        '<div class="stat" style="border-left:3px solid #10b981;min-width:140px"><div class="stat-v">' + (s.delivered || 0) + '</div><div class="stat-l">送达</div></div>' +
+        '<div class="stat" style="border-left:3px solid #f59e0b;min-width:140px"><div class="stat-v">' + (s.replied || 0) + '</div><div class="stat-l">回复</div></div>' +
+        '<div class="stat" style="border-left:3px solid #ef4444;min-width:140px"><div class="stat-v">' + (s.failed || 0) + '</div><div class="stat-l">失败</div></div>'
+      ).join('');
+    }
+  } catch (e) { console.warn('refreshOutreach', e); }
+}
+
+// ===== 商业闭环 =====
+async function refreshCommercialLoop() {
+  try {
+    const d = await api('/v1/commercial-loop/status');
+    if (!d || !d.ok) return;
+    const s = d.summary;
+
+    // 摘要
+    const sumEl = $('#clSummary');
+    if (sumEl) {
+      const healthPct = Math.round(s.loopHealth * 100);
+      const healthColor = healthPct >= 75 ? '#22c55e' : healthPct >= 40 ? '#f59e0b' : '#ef4444';
+      sumEl.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">' +
+        '<span title="已确认证据维度 ÷ 总维度（真实产出占比）">闭环健康度 <b style="color:' + healthColor + '">' + healthPct + '%</b></span>' +
+        '<span title="已建管道的阶段数：管道齐备 ≠ 闭环成立">已建管道 <b>' + s.stagesStarted + '/' + s.stagesTotal + '</b> 阶段</span>' +
+        '<span>证据维度 <b>' + s.evidenceDimsReady + '/' + s.evidenceDimsTotal + '</b> 达标</span>' +
+        '<span>证据 <b>' + s.evidenceConfirmed + '/' + s.evidenceTotal + '</b> 已确认</span>' +
+        (s.retention && s.retention.users ? '<span>真实用户 <b>' + s.retention.users + '</b>（复用 ' + s.retention.reused + '）</span>' : '') +
+        '</div>';
+    }
+
+    // 8 阶段卡片
+    const stagesEl = $('#clStages');
+    if (stagesEl && d.stages) {
+      stagesEl.innerHTML = d.stages.map(st => {
+        const color = st.hasData ? '#22c55e' : '#64748b';
+        const badge = st.hasData ? '✓ 有数据' : '○ 未启动';
+        const evBadge = st.evidenceDim ? (st.evidenceConfirmed >= 1 ? '证据✓' : '证据缺') : '';
+        const metrics = Object.entries(st.metrics).map(([k, v]) => k + ':' + v).join(' ');
+        return '<div style="padding:10px;border:1px solid #334155;border-radius:6px;font-size:12px">' +
+          '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + st.name + ' <span style="color:' + color + ';font-size:11px">[' + badge + ']</span> ' + (evBadge ? '<span style="font-size:11px;color:#94a3b8">[' + evBadge + ']</span>' : '') + '</div>' +
+          '<div style="color:#94a3b8;margin-bottom:4px">' + st.desc + '</div>' +
+          '<div style="color:#64748b;font-size:11px">' + metrics + '</div>' +
+          (st.skills && st.skills.length ? '<div style="color:#475569;font-size:11px;margin-top:4px">skills: ' + st.skills.join(', ') + '</div>' : '') +
+          '</div>';
+      }).join('');
+    }
+
+    // 证据维度
+    const evEl = $('#clEvidence');
+    if (evEl && d.evidence && d.evidence.dims) {
+      evEl.innerHTML = '<div style="font-size:12px;font-weight:600;margin-bottom:6px">证据维度</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        d.evidence.dims.map(dim => {
+          const ok = dim.confirmed >= 1;
+          return '<span style="padding:4px 8px;border-radius:4px;font-size:11px;background:' + (ok ? '#064e3b' : '#1e293b') + ';color:' + (ok ? '#6ee7b7' : '#94a3b8') + '">' + dim.dim + ' ' + dim.confirmed + '/' + dim.total + '</span>';
+        }).join('') + '</div>';
+    }
+
+    // 下一步建议
+    const nextEl = $('#clNext');
+    if (nextEl) {
+      nextEl.innerHTML = '<b>下一步：</b>' + (d.nextAction || '继续真实触达，让更多客户回复进来');
+    }
+  } catch (e) { console.warn('refreshCommercialLoop', e); }
+}
+$('#clRefresh') && ($('#clRefresh').onclick = () => refreshCommercialLoop().catch(() => {}));
+
+// ===== 线索转化 =====
+async function refreshConvert() {
+  try {
+    const stage = $('#convertStage')?.value || '';
+    const params = stage ? '?stage=' + encodeURIComponent(stage) : '';
+    
+    const [funnel, leads] = await Promise.all([
+      api('/v1/money/leads/funnel' + params),
+      api('/v1/money/leads' + params)
+    ]);
+    
+    // 漏斗图
+    if (funnel.ok) renderConvertFunnel(funnel);
+    
+    // 线索列表
+    const tbody = $('#convertLeadsTbl tbody');
+    if (tbody && leads.ok) {
+      const list = leads.leads || leads.list || [];
+      tbody.innerHTML = list.map(l =>
+        '<tr style="cursor:pointer" data-id="' + esc(l.id) + '">' +
+          '<td>' + esc(l.id) + '</td><td>' + esc(l.name || '') + '</td>' +
+          '<td><span class="tag" style="background:' + stageColor(l.stage) + '">' + esc(l.stage || '') + '</span></td>' +
+          '<td>' + esc(l.amt || l.amount || 0) + '</td>' +
+          '<td>' + esc(l.channel || '') + '</td>' +
+          '<td>' + (l.lastTouchAt ? new Date(l.lastTouchAt).toLocaleString() : (l.at ? new Date(l.at).toLocaleString() : '')) + '</td>' +
+          '<td><button class="btn ghost" data-act="detail" data-id="' + esc(l.id) + '">详情</button></td>' +
+        '</tr>'
+      ).join('') || '<tr><td colspan="7" class="text-muted" style="text-align:center">暂无线索</td></tr>';
+      
+      // 绑定详情点击
+      $$('#convertLeadsTbl button[data-act="detail"]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.dataset.id;
+          await showConvertDetail(id);
+        };
+      });
+    }
+  } catch (e) { console.warn('refreshConvert', e); }
+}
+
+function stageColor(stage) {
+  const colors = {
+    new: '#3b82f6', contacted: '#8b5cf6', qualified: '#06b6d4',
+    proposal: '#f59e0b', negotiation: '#ec4899', won: '#10b981', lost: '#ef4444'
+  };
+  return colors[stage] || '#64748b';
+}
+
+function renderConvertFunnel(f) {
+  const box = $('#convertFunnelSvg');
+  const meta = $('#convertFunnelMeta');
+  if (!box) return;
+  const stages = (f.funnel || f.stages || []).filter(s => s.count > 0);
+  if (!stages.length) {
+    box.innerHTML = '<div class="text-muted" style="padding:40px;text-align:center">暂无漏斗数据</div>';
+    return;
+  }
+  const max = Math.max(...stages.map(s => s.count));
+  const w = box.clientWidth || 560, h = 220;
+  const padL = 120, padT = 12, padB = 12;
+  const plotW = Math.max(40, w - padL - 30);
+  const rowH = (h - padT - padB) / stages.length;
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', w); svg.setAttribute('height', h);
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  const xOf = v => (Number(v) || 0) / max * plotW;
+
+  svg.innerHTML = stages.map((s, i) => {
+    const y = padT + i * rowH;
+    const barH = Math.max(10, rowH - 8);
+    const bw = Math.max(2, xOf(s.count));
+    return '<rect x="' + padL + '" y="' + y + '" width="' + bw + '" height="' + barH + '" fill="' + (s.color || stageColor(s.stage)) + '" rx="4" style="cursor:pointer"/>' +
+      '<text x="' + (padL - 8) + '" y="' + (y + barH / 2 + 5) + '" text-anchor="end" font-size="12" fill="#1f2937">' + esc(s.label || s.stage) + '</text>' +
+      '<text x="' + (padL + bw + 6) + '" y="' + (y + barH / 2 + 5) + '" font-size="12" fill="#1f2937">' + s.count + '</text>';
+  }).join('');
+
+  box.innerHTML = '';
+  box.appendChild(svg);
+
+  if (meta) meta.textContent = '更新：' + new Date(f.at || Date.now()).toLocaleString() + ' · 总计：' + (f.total || 0) + ' 条线索';
+}
+
+async function showConvertDetail(leadId) {
+  const detailBox = $('#convertDetail');
+  if (!detailBox) return;
+  detailBox.innerHTML = '<div class="text-muted">加载中…</div>';
+  
+  try {
+    const [touches, followups, deals] = await Promise.all([
+      api('/v1/outreach/records?leadId=' + encodeURIComponent(leadId)),
+      api('/v1/money/leads/touch?leadId=' + encodeURIComponent(leadId)),
+      api('/v1/money/leads?leadId=' + encodeURIComponent(leadId))
+    ]);
+    
+    const touchesHtml = (touches.ok ? (touches.list || []) : []).map(t => 
+      '<tr><td>' + (t.at ? new Date(t.at).toLocaleString() : '') + '</td><td>' + esc(t.channel || '') + '</td><td>' + esc(t.status || '') + '</td><td>' + esc((t.content || '').slice(0, 80)) + '</td></tr>'
+    ).join('');
+    
+    const followupsHtml = (followups.ok ? (followups.list || []) : []).map(f => 
+      '<tr><td>' + (f.at ? new Date(f.at).toLocaleString() : '') + '</td><td>' + esc(f.action || '') + '</td><td>' + esc(f.note || '') + '</td></tr>'
+    ).join('');
+    
+    const dealData = deals.ok ? (deals.leads || deals.list || [])[0] || {} : {};
+    const dealHtml = esc(JSON.stringify(dealData, null, 2));
+    
+    detailBox.innerHTML = 
+      '<div class="row" style="gap:16px;flex-wrap:wrap">' +
+        '<div class="card" style="flex:1;min-width:300px">' +
+          '<div class="card-t">触达历史</div>' +
+          '<div class="scrollable" style="max-height:200px">' +
+            '<table class="tbl"><thead><tr><th>时间</th><th>渠道</th><th>状态</th><th>内容</th></tr></thead>' +
+            '<tbody>' + touchesHtml + '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card" style="flex:1;min-width:300px">' +
+        '<div class="card-t">跟进记录</div>' +
+        '<div class="scrollable" style="max-height:200px">' +
+          '<table class="tbl"><thead><tr><th>时间</th><th>动作</th><th>备注</th></tr></thead>' +
+          '<tbody>' + followupsHtml + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>' +
+      '<div class="card" style="flex:1;min-width:300px">' +
+        '<div class="card-t">成交详情</div>' +
+        '<pre class="code" style="max-height:200px">' + dealHtml + '</pre>' +
+      '</div>' +
+    '</div>';
+  } catch (e) {
+    detailBox.innerHTML = '<div class="text-muted" style="color:#ef4444">加载失败：' + (e.message || e) + '</div>';
+  }
+}
+
+// ===== 提现账户配置 =====
+async function payoutConfigSave() {
+  const out = $('#payoutConfigResult');
+  if (!out) return;
+  out.hidden = false; out.textContent = '保存中…';
+  try {
+    const body = {
+      bank: $('#payoutBank')?.value || '',
+      account: $('#payoutAccount')?.value || '',
+      name: $('#payoutName')?.value || '',
+      branch: $('#payoutBranch')?.value || ''
+    };
+    const d = await api('/v1/payout/config', { method: 'POST', body });
+    out.textContent = JSON.stringify(d, null, 2);
+    toast(d.ok ? '配置已保存' : '保存失败：' + (d.error || d.message), d.ok ? 'ok' : 'err');
+  } catch (e) { out.textContent = '异常：' + (e.message || e); toast('保存异常', 'err'); }
+}
+
+// ===== 打款指令 =====
+async function instructionCreate() {
+  const out = $('#instructionResult');
+  if (!out) return;
+  out.hidden = false; out.textContent = '创建中…';
+  try {
+    const body = {
+      type: $('#instructionType')?.value || 'other',
+      target: $('#instructionTarget')?.value || '',
+      amount: Number($('#instructionAmount')?.value || 0),
+      remark: $('#instructionRemark')?.value || ''
+    };
+    if (!body.target || body.amount <= 0) { toast('收款方和金额必填', 'err'); return; }
+    const d = await api('/v1/payout/instruction', { method: 'POST', body });
+    out.textContent = JSON.stringify(d, null, 2);
+    toast(d.ok ? '指令已创建' : '创建失败：' + (d.error || d.message), d.ok ? 'ok' : 'err');
+  } catch (e) { out.textContent = '异常：' + (e.message || e); toast('创建异常', 'err'); }
+}
+
+// ===== 催款管理 =====
+async function dunningSend() {
+  const out = $('#dunningResult');
+  if (!out) return;
+  out.hidden = false; out.textContent = '发送中…';
+  try {
+    const body = {
+      target: $('#dunningTarget')?.value || '',
+      amount: Number($('#dunningAmount')?.value || 0),
+      channel: $('#dunningChannel')?.value || 'wechat'
+    };
+    if (!body.target) { toast('催款对象必填', 'err'); return; }
+    const d = await api('/v1/payout/dunning', { method: 'POST', body });
+    out.textContent = JSON.stringify(d, null, 2);
+    toast(d.ok ? '催款已发送' : '发送失败：' + (d.error || d.message), d.ok ? 'ok' : 'err');
+  } catch (e) { out.textContent = '异常：' + (e.message || e); toast('发送异常', 'err'); }
+}
+
+// ===== GTM 落地页可编辑预览 =====
+async function refreshGtmLanding() {
+  const icp = ($('#gtmLandingIcp') && $('#gtmLandingIcp').value) || '';
+  if (!icp) return;
+  const d = await api('/v1/gtm/landing?icp=' + encodeURIComponent(icp));
+  const out = $('#gtmLandingOut');
+  const editBox = $('#gtmLandingEdit');
+  if (d.ok) {
+    out.hidden = false;
+    out.textContent = JSON.stringify(d, null, 2);
+    // 可编辑预览
+    if (editBox) {
+      editBox.hidden = false;
+      editBox.innerHTML = '<h5 style="margin:8px 0 4px">可编辑预览（修改后可保存为自定义文案）</h5>' +
+        '<textarea id="landingHeadline" class="inp" rows="2" style="width:100%;margin-bottom:8px" placeholder="标题">' + esc(d.headline || '') + '</textarea>' +
+        '<textarea id="landingSub" class="inp" rows="2" style="width:100%;margin-bottom:8px" placeholder="副标题">' + esc(d.sub || '') + '</textarea>' +
+        '<div style="margin-bottom:8px"><b>三大卖点：</b></div>' +
+        '<div id="landingThree"></div>' +
+        '<textarea id="landingProof" class="inp" rows="2" style="width:100%;margin:8px 0" placeholder="证明点">' + esc(d.proof || '') + '</textarea>' +
+        '<textarea id="landingPrice" class="inp" rows="1" style="width:100%;margin:8px 0" placeholder="价格">' + esc(d.price || '') + '</textarea>' +
+        '<textarea id="landingCta" class="inp" rows="1" style="width:100%;margin:8px 0" placeholder="行动号召">' + esc(d.cta || '') + '</textarea>' +
+        '<textarea id="landingDisclaimer" class="inp" rows="1" style="width:100%;margin:8px 0" placeholder="免责声明">' + esc(d.disclaimer || '') + '</textarea>' +
+        '<div class="row" style="margin-top:8px"><button class="btn primary" id="landingSave">保存自定义文案</button></div>';
+      // 渲染三大卖点
+      const threeBox = $('#landingThree');
+      if (threeBox && d.three) {
+        threeBox.innerHTML = d.three.map((t, i) => '<div style="display:flex;gap:8px;margin-bottom:8px">' +
+          '<textarea class="inp" rows="1" style="flex:1" placeholder="痛点" data-field="pain" data-idx="' + i + '">' + esc(t.pain || '') + '</textarea>' +
+          '<textarea class="inp" rows="1" style="flex:1" placeholder="解决方案" data-field="fix" data-idx="' + i + '">' + esc(t.fix || '') + '</textarea>' +
+        '</div>').join('');
+      }
+      const saveBtn = $('#landingSave');
+      if (saveBtn) {
+        saveBtn.onclick = async () => {
+          const custom = {
+            icp: d.icp,
+            headline: $('#landingHeadline')?.value || '',
+            sub: $('#landingSub')?.value || '',
+            three: (d.three || []).map((t, i) => ({
+              pain: $('textarea[data-field="pain"][data-idx="' + i + '"]')?.value || '',
+              fix: $('textarea[data-field="fix"][data-idx="' + i + '"]')?.value || ''
+            })),
+            proof: $('#landingProof')?.value || '',
+            price: $('#landingPrice')?.value || '',
+            cta: $('#landingCta')?.value || '',
+            disclaimer: $('#landingDisclaimer')?.value || '',
+            custom: true,
+            updatedAt: Date.now()
+          };
+          // 存入 store 作为自定义文案。
+          // 【原 bug】原来写的是 require('./core/store')——浏览器里没有 require，
+          // 一点「保存」就抛 ReferenceError，文案根本没存进去，连提示都没有。
+          const r = await api('/v1/gtm/landing', { method: 'POST', body: JSON.stringify(custom) });
+          if (r && r.ok) toast('自定义文案已保存', 'ok');
+          else toast('保存失败：' + ((r && r.error) || '服务未就绪'), 'bad');
+        };
+      }
+    }
+  } else {
+    out.hidden = false;
+    out.textContent = '生成失败：' + (d.error || d.message || '未知错误');
+    if (editBox) editBox.hidden = true;
+  }
+}
+
+// GTM 漏斗下钻到线索级
+async function gtmDrillStage(stageKey) {
+  const detailBox = $('#gtmFunnelDetail');
+  if (!detailBox) return;
+  detailBox.innerHTML = '<div class="text-muted">加载中…</div>';
+  try {
+    const d = await api('/v1/gtm/funnel/drill?stage=' + encodeURIComponent(stageKey));
+    if (!d.ok || !d.leads?.length) {
+      detailBox.innerHTML = '<div class="text-muted">该阶段暂无线索</div>';
+      return;
+    }
+    const rows = d.leads.map(l => 
+      '<tr><td>' + esc(l.id) + '</td><td>' + esc(l.name) + '</td><td>' + esc(l.channel || '') + '</td><td>' + esc(l.industry || '') + '</td><td>' + esc(l.budget || '') + '</td><td>' + (l.lastTouchAt ? new Date(l.lastTouchAt).toLocaleString() : '') + '</td><td><button class="btn ghost" data-lead-id="' + esc(l.id) + '">详情</button></td></tr>'
+    ).join('');
+    detailBox.innerHTML = 
+      '<h5>阶段「' + stageKey + '」下的线索（' + d.leads.length + ' 条）</h5>' +
+      '<div class="scrollable" style="max-height:300px">' +
+        '<table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>渠道</th><th>行业</th><th>预算</th><th>最后触达</th><th>操作</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+      '</div>';
+    // Bind click events using event delegation
+    detailBox.querySelectorAll('button[data-lead-id]').forEach(btn => {
+      btn.onclick = () => showLeadDetail(btn.dataset.leadId);
+    });
+  } catch (e) {
+    detailBox.innerHTML = '<div class="text-muted" style="color:#ef4444">加载失败：' + (e.message || e) + '</div>';
+  }
+}
+
+// 显示合伙人交付明细
+async function showPartnerDeliverDetail(partnerId) {
+  const detailBox = $('#partnerDeliverDetail');
+  if (!detailBox) return;
+  detailBox.innerHTML = '<div class="text-muted">加载中…</div>';
+  try {
+    const d = await api('/v1/partner/deliveries?partnerId=' + encodeURIComponent(partnerId));
+    if (!d.ok || !d.list?.length) {
+      detailBox.innerHTML = '<div class="text-muted">该合伙人暂无交付记录</div>';
+      return;
+    }
+    detailBox.innerHTML = '<div class="scrollable" style="max-height:300px">' +
+      '<table class="tbl"><thead><tr><th>ID</th><th>客户</th><th>服务内容</th><th>交付物</th><th>工时</th><th>成交额</th><th>状态</th><th>分润</th><th>验收时间</th></tr></thead>' +
+      '<tbody>' + d.list.map(x => '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + '</td><td>' + esc(x.what) + '</td><td>' + esc(x.deliverable || '') + '</td><td>' + (x.hours || 0) + '</td><td>' + (x.amount || 0) + '</td><td>' + esc(x.accepted ? '已验收' : '待验收') + '</td><td>' + (x.share || 0) + '</td><td>' + (x.acceptedAt ? new Date(x.acceptedAt).toLocaleString() : (x.at ? new Date(x.at).toLocaleString() : '')) + '</td></tr>').join('') + '</tbody>' +
+    '</table>' +
+    '</div>';
+  } catch (e) {
+    detailBox.innerHTML = '<div class="text-muted" style="color:#ef4444">加载失败：' + (e.message || e) + '</div>';
+  }
+}
+
+
+// ===== 合规中心 =====
+async function refreshCompliance() {
+  const ctx = ($('#complianceCtx') && $('#complianceCtx').value) || 'payment';
+  const [audit, clauses] = await Promise.all([
+    api('/v1/compliance/audit'),
+    api('/v1/compliance/clauses?context=' + encodeURIComponent(ctx))
+  ]);
+  renderComplianceAudit(audit);
+  renderComplianceClauses(clauses, ctx);
+}
+
+function renderComplianceAudit(d) {
+  const box = $('#complianceAudit');
+  if (!box || !d || !d.ok) { if (box) box.textContent = '自审加载失败'; return; }
+  const frames = d.frames || [];
+  let html = '<div id="complianceFrames" class="row" style="flex-wrap:wrap;gap:12px;margin-bottom:12px">';
+  html += frames.map(f => {
+    const c = f.unmet === 0 ? '#10b981' : (f.met + f.partial > 0 ? '#f59e0b' : '#ef4444');
+    const label = f.unmet === 0 ? '全落地' : (f.met + f.partial > 0 ? '部分' : '未实现');
+    return '<div class="stat" style="border-left:3px solid ' + c + ';min-width:160px">' +
+      '<div class="stat-v">' + label + '</div>' +
+      '<div class="stat-l">' + esc(f.frame) + '</div>' +
+      '<div class="sub" style="font-size:11px;margin-top:4px">✅ ' + f.met + ' · ◐ ' + f.partial + ' · ❌ ' + f.unmet + '</div>' +
+    '</div>';
+  }).join('');
+  html += '</div>';
+  const gaps = d.gaps || [];
+  if (gaps.length) {
+    html += '<div style="margin-top:8px"><b>🕳️ 未落地项（' + gaps.length + '）：</b><ul style="margin:6px 0 0 18px">' +
+      gaps.map(g => '<li><code>' + esc(g.frame) + '</code> · ' + esc(g.title) + ' <span class="sub">— ' + esc(g.note || '') + '</span></li>').join('') +
+    '</ul></div>';
+  } else {
+    html += '<div class="sub" style="color:#10b981">✅ 当前无可自动判据标为未落地的声明。</div>';
+  }
+  box.innerHTML = html;
+  if ($('#complianceHonesty')) $('#complianceHonesty').innerHTML = esc(d.honesty || '');
+}
+
+function renderComplianceClauses(d, ctx) {
+  const box = $('#complianceClauses');
+  if (!box || !d || !d.ok) { if (box) box.textContent = '声明加载失败'; return; }
+  const items = d.items || [];
+  if (!items.length) { box.innerHTML = '<div class="sub">该场景暂无声明。</div>'; return; }
+  box.innerHTML = items.map(c => {
+    const badge = c.status === 'met' ? '<span class="tag" style="background:#10b981;color:#fff">✅ 落地</span>'
+      : c.status === 'partial' ? '<span class="tag" style="background:#f59e0b;color:#fff">◐ 部分</span>'
+      : '<span class="tag" style="background:#ef4444;color:#fff">❌ 未落地</span>';
+    return '<div class="panel" style="margin:8px 0;padding:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<b>' + esc(c.title) + '</b>' + badge +
+      '</div>' +
+      '<div class="sub" style="margin-top:2px">法规：<code>' + esc(c.frame) + '</code>' +
+        (c.endpoint ? ' · 端点：<code>' + esc(c.endpoint) + '</code>' : '') + '</div>' +
+      '<div class="sub" style="margin-top:6px">' + esc(c.body || '') + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function compliancePrivacyErase() {
+  const id = ($('#privacyLeadId') && $('#privacyLeadId').value || '').trim();
+  if (!id) { toast('请填线索 ID', 'err'); return; }
+  const deep = ($('#privacyDeep') && $('#privacyDeep').checked) === true;
+  const out = $('#privacyResult');
+  if (out) { out.hidden = false; out.textContent = '执行中…'; }
+  const d = await api('/v1/privacy/erasure', { method: 'POST', body: { leadId: id, deep } });
+  if (out) out.textContent = JSON.stringify(d, null, 2);
+  toast(d.ok ? '已匿名化 ' + (d.scrubbed || 0) + ' 条记录' : '执行失败：' + (d.error || d.message), d.ok ? 'ok' : 'err');
+}
+
+async function compliancePrivacyExport() {
+  const id = ($('#privacyLeadId') && $('#privacyLeadId').value || '').trim();
+  if (!id) { toast('请填线索 ID', 'err'); return; }
+  const out = $('#privacyResult');
+  if (out) { out.hidden = false; out.textContent = '导出中…'; }
+  const d = await api('/v1/privacy/portability?leadId=' + encodeURIComponent(id));
+  if (out) out.textContent = JSON.stringify(d, null, 2);
+  toast(d.ok ? '已导出（' + (d.tables || []).join(', ') + '）' : '导出失败：' + (d.error || d.message), d.ok ? 'ok' : 'err');
+}
+
+// ===== 创业验证所 =====
+const VAL_PHASES = ['需求受理','创意发散','市场调研','研究闸门','客户访谈','访谈闸门','战略定位','品牌定义','产品定义','财务模型','验证实验'];
+const VAL_DIMS = [['market','市场规模'],['competition','竞争格局'],['demand','客户需求'],['timing','时机'],['unit','单位经济'],['team','团队契合'],['risk','风险画像']];
+async function refreshValidator() {
+  renderValidatorList();
+  showValView('start');
+}
+function showValView(view) {
+  const start = $('#valStartView'), detail = $('#valDetailView');
+  if (view === 'detail') { start.hidden = true; detail.hidden = false; }
+  else { start.hidden = false; detail.hidden = true; }
+}
+async function renderValidatorList() {
+  const box = $('#valProjectList');
+  if (!box) return;
+  box.innerHTML = '<div class="text-muted">加载中…</div>';
+  const d = await api('/v1/validator/list');
+  if (!d || !d.ok) { box.innerHTML = '<span style="color:#ef4444">加载失败</span>'; return; }
+  const projs = d.projects || [];
+  if (!projs.length) { box.innerHTML = '<div class="sub">暂无项目。点上方"启动 Pre-Flight"创建。</div>'; return; }
+  box.innerHTML = projs.map(p => {
+    const phase = VAL_PHASES[p.phase] || '完成';
+    const badge = p.verdict ? '<span class="tag" style="background:' + p.verdict.color + ';color:#fff">' + p.verdict.verdict + '</span>' : '';
+    return '<div class="panel" style="min-width:260px;max-width:320px;flex:1 1 260px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<b>' + esc(p.name) + '</b> ' + badge +
+      '</div>' +
+      '<div class="sub" style="margin:4px 0"><code>' + esc(p.idea.slice(0, 60)) + '</code></div>' +
+      '<div class="sub">' + p.phase + '/' + (VAL_PHASES.length - 1) + ' · ' + esc(phase) + '</div>' +
+      '<div style="margin-top:8px"><button class="btn primary" onclick="openValidator(\'' + p.id + '\')">打开</button></div>' +
+    '</div>';
+  }).join('');
+}
+function openValidator(id) {
+  showValView('detail');
+  loadValidatorDetail(id);
+}
+async function loadValidatorDetail(id) {
+  const box = $('#valDetailBody');
+  const title = $('#valProjName');
+  const badge = $('#valPhaseBadge');
+  if (!box) return;
+  box.innerHTML = '<div class="text-muted">加载中…</div>';
+  const d = await api('/v1/validator/state?id=' + encodeURIComponent(id));
+  if (!d || !d.ok) { box.innerHTML = '<span style="color:#ef4444">加载失败</span>'; return; }
+  const p = d.project;
+  if (!p) { box.innerHTML = '<span style="color:#ef4444">项目不存在</span>'; return; }
+  if (title) title.textContent = p.name + ' · ' + p.idea.slice(0, 80);
+  const phase = VAL_PHASES[p.phase] || '完成';
+  if (badge) { badge.textContent = phase; badge.className = 'tag ' + (p.verdict ? p.verdict.color : 'violet'); }
+  let html = '';
+  // Pre-Flight
+  if (p.preflight) {
+    const pf = p.preflight;
+    html += '<div class="panel"><div class="panel-title">🛫 Pre-Flight 三查</div>';
+    if (pf.redFlags.length) html += '<div class="sub" style="color:#ef4444"><b>🔴 Red Flags</b><ul style="margin:4px 0 0 18px">' + pf.redFlags.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+    if (pf.yellowFlags.length) html += '<div class="sub" style="color:#f59e0b"><b>🟡 Yellow Flags</b><ul style="margin:4px 0 0 18px">' + pf.yellowFlags.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+    if (!pf.redFlags.length && !pf.yellowFlags.length) html += '<div class="sub" style="color:#10b981">✅ 无阻断信号</div>';
+    html += '</div>';
+  }
+  // 进度
+  html += '<div class="panel"><div class="panel-title">📋 阶段进度</div><div class="row" style="flex-wrap:wrap;gap:6px">';
+  for (let i = 0; i < VAL_PHASES.length; i++) {
+    const ph = VAL_PHASES[i];
+    const isGate = i === 3 || i === 5;
+    const cls = i < p.phase ? 'done' : (i === p.phase ? 'current' : 'pending');
+    html += '<div class="tag ' + cls + '" style="width:auto">' + (isGate ? '🚦 ' : '') + ph + '</div>';
+  }
+  html += '</div></div>';
+  // 闸门
+  if (p.gates.research) {
+    const g = p.gates.research;
+    const c = g === 'green' ? '#10b981' : g === 'yellow' ? '#f59e0b' : '#ef4444';
+    html += '<div class="panel"><div class="panel-title">🚦 研究闸门</div><div class="tag" style="background:' + c + ';color:#fff">' + g.toUpperCase() + '</div></div>';
+  }
+  if (p.gates.interview) {
+    const g = p.gates.interview;
+    const c = g === 'green' ? '#10b981' : g === 'yellow' ? '#f59e0b' : '#ef4444';
+    html += '<div class="panel"><div class="panel-title">🚦 访谈闸门</div><div class="tag" style="background:' + c + ';color:#fff">' + g.toUpperCase() + '</div></div>';
+  }
+  // 访谈记录
+  if (p.interviews && p.interviews.length) {
+    html += '<div class="panel"><div class="panel-title">🎤 访谈记录</div>';
+    for (const iv of p.interviews) {
+      const ic = iv.confirmed ? '#10b981' : '#ef4444';
+      const bc = iv.behaviorSignal ? '#10b981' : '#f59e0b';
+      html += '<div class="sub" style="margin:6px 0"><b>访谈 ' + iv.n + '</b> · 确认：<span style="color:' + ic + '">' + (iv.confirmed ? '是' : '否') + '</span> · 行为信号：<span style="color:' + bc + '">' + (iv.behaviorSignal ? '有' : '无') + '</span><br><span style="color:var(--muted)">' + esc(iv.summary.slice(0, 200)) + '</span></div>';
+    }
+    html += '</div>';
+  }
+  // Scorecard
+  if (p.scorecard && p.verdict) {
+    const v = p.verdict;
+    html += '<div class="panel"><div class="panel-title">📊 Scorecard（7 维）</div>';
+    html += '<div class="tag" style="background:' + v.color + ';color:#fff;font-size:13px">' + v.verdict.toUpperCase() + ' · 平均 ' + v.avg + ' · 最低 ' + v.min + '</div>';
+    html += '<div style="margin-top:8px">' + VAL_DIMS.map(d => '<div class="sub"><b>' + d[1] + '</b>：' + (p.scorecard[d[0]] || '-') + '/10</div>').join('') + '</div>';
+    html += '<div class="sub" style="margin-top:6px;color:var(--muted)">' + esc(v.summary) + '</div>';
+    html += '</div>';
+  }
+  // Kill Criteria
+  if (p.killCriteria && p.killCriteria.length) {
+    html += '<div class="panel"><div class="panel-title">🛑 Kill Criteria</div><ul style="margin:4px 0 0 18px">' + p.killCriteria.map(k => '<li>' + esc(k) + '</li>').join('') + '</ul></div>';
+  }
+  // Flags
+  if (p.flags && (p.flags.red.length || p.flags.yellow.length)) {
+    html += '<div class="panel"><div class="panel-title">⚠️ Flags</div>';
+    if (p.flags.red.length) html += '<div class="sub" style="color:#ef4444"><b>🔴 Red Flags</b><ul style="margin:4px 0 0 18px">' + p.flags.red.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+    if (p.flags.yellow.length) html += '<div class="sub" style="color:#f59e0b"><b>🟡 Yellow Flags</b><ul style="margin:4px 0 0 18px">' + p.flags.yellow.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+    html += '</div>';
+  }
+  // 推进/提交区（按阶段给不同表单）
+  const gatePh = p.phase === 3 || p.phase === 5;
+  const interviewPh = p.phase === 4;
+  const validationPh = p.phase === 10 && !p.verdict;
+  if (p.phase < 10 || validationPh) {
+    html += '<div class="panel"><div class="panel-title">' + (gatePh ? '🚦 闸门判定' : interviewPh ? '🎤 记录访谈' : validationPh ? '📊 提交 Scorecard' : '➡️ 推进到下一阶段') + '</div>';
+    const noteHtml = '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input class="ipt" id="valNote" placeholder="备注（可选）" style="flex:1;min-width:180px"></div>';
+    if (gatePh) {
+      html += '<div class="sub">这是闸门，需给出判定（Green=数据支持继续 / Yellow=有疑虑 / Red=终止）：</div>';
+      html += '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">';
+      html += '<button class="btn primary" onclick="valGate(\'' + p.id + '\',\'green\')">✅ Green</button>';
+      html += '<button class="btn" onclick="valGate(\'' + p.id + '\',\'yellow\')">🟡 Yellow</button>';
+      html += '<button class="btn danger" onclick="valGate(\'' + p.id + '\',\'red\')">🔴 Red</button>';
+      html += '</div>' + noteHtml;
+      if (p.phase === 5) {
+        html += '<div class="sub" style="margin-top:10px">已访谈 ' + (p.interviews ? p.interviews.length : 0) + ' 次（建议 ≥5 次、且至少 2 次有行为信号，Green 才可信）。</div>';
+        html += '<details style="margin-top:6px"><summary class="sub">➕ 补充一次访谈</summary>';
+        html += '<textarea class="ipt" id="valIvSummary" rows="2" style="width:100%;margin-top:6px" placeholder="访谈摘要：TA 目前怎么做/为此花过什么/解决不了会怎样"></textarea>';
+        html += '<label class="switch-row" style="margin:6px 0"><span>TA 确认了痛点（不是客气）</span><input type="checkbox" id="valIvConfirmed"><span class="sw"></span></label>';
+        html += '<label class="switch-row"><span>有行为信号（已付费/投入过时间找方案）</span><input type="checkbox" id="valIvBehavior"><span class="sw"></span></label>';
+        html += '<button class="btn ghost" style="margin-top:6px" onclick="valInterviewOnly(\'' + p.id + '\')">仅记录，不推进</button></details>';
+      }
+    } else if (interviewPh) {
+      html += '<div class="sub">真实客户访谈（只认「确认痛点 + 行为信号」，礼貌性口头认可不算数）：</div>';
+      html += '<textarea class="ipt" id="valIvSummary" rows="3" style="width:100%;margin-top:6px" placeholder="访谈摘要：TA 目前怎么做/为此花过什么/解决不了会怎样"></textarea>';
+      html += '<label class="switch-row" style="margin:8px 0 0"><span>TA 确认了痛点（不是客气）</span><input type="checkbox" id="valIvConfirmed"><span class="sw"></span></label>';
+      html += '<label class="switch-row"><span>有行为信号（已付费/投入过时间找方案）</span><input type="checkbox" id="valIvBehavior"><span class="sw"></span></label>';
+      html += noteHtml;
+      html += '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn primary" onclick="valInterview(\'' + p.id + '\')">记录并推进</button></div>';
+    } else if (validationPh) {
+      html += '<div class="sub">7 维打分（1-10），提交后出具明确判定：</div>';
+      html += '<div style="margin-top:8px">' + VAL_DIMS.map(d => '<div class="sub"><b>' + d[1] + '</b>：<input class="ipt" type="number" min="1" max="10" id="valSc_' + d[0] + '" style="max-width:80px" value="5"></div>').join('') + '</div>';
+      html += '<div class="sub" style="margin-top:8px">Kill Criteria（止损线，一行一条，达标即停）：</div>';
+      html += '<textarea class="ipt" id="valKill" rows="3" style="width:100%" placeholder="例：上线 30 天内付费客户 < 10；CAC > 3 × 客单价"></textarea>';
+      html += noteHtml;
+      html += '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn primary" onclick="valScore(\'' + p.id + '\')">提交评分并出具判定</button></div>';
+    } else {
+      html += '<div class="sub">下一阶段：<b>' + esc(VAL_PHASES[p.phase + 1] || '') + '</b>；本阶段产出物（可选，粘贴研究/文档摘要）：</div>';
+      html += '<textarea class="ipt" id="valArtifact" rows="3" style="width:100%;margin-top:6px" placeholder="本阶段产出物摘要（可选）"></textarea>';
+      html += noteHtml;
+      html += '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn primary" onclick="valAdvance(\'' + p.id + '\')">推进</button></div>';
+    }
+    html += '</div>';
+  }
+  if (p.phase >= 10 && p.verdict) {
+    html += '<div class="panel"><div class="panel-title">🏁 最终判定</div>';
+    const v = p.verdict;
+    const c = v.color === 'green' ? '#10b981' : v.color === 'yellow' ? '#f59e0b' : v.color === 'orange' ? '#f59e0b' : '#ef4444';
+    html += '<div class="tag" style="background:' + c + ';color:#fff;font-size:14px;padding:8px 12px">' + v.verdict.toUpperCase() + ' · ' + esc(v.summary) + '</div>';
+    if (p.killCriteria && p.killCriteria.length) {
+      html += '<div class="sub" style="margin-top:8px"><b>Kill Criteria（止损线）：</b><ul style="margin:4px 0 0 18px">' + p.killCriteria.map(k => '<li>' + esc(k) + '</li>').join('') + '</ul></div>';
+    }
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+function _valNote() { return ($('#valNote') && $('#valNote').value) || ''; }
+function _valIvFields() {
+  return {
+    summary: ($('#valIvSummary') && $('#valIvSummary').value || '').trim(),
+    confirmed: !!($('#valIvConfirmed') && $('#valIvConfirmed').checked),
+    behaviorSignal: !!($('#valIvBehavior') && $('#valIvBehavior').checked),
+  };
+}
+async function valGate(id, gate) {
+  const d = await api('/v1/validator/advance', { method: 'POST', body: { id, gate, note: _valNote() } });
+  if (!d || !d.ok) { toast('闸门判定失败：' + (d.error || d.message), 'err'); return; }
+  toast(gate === 'red' ? 'Red 已记录：建议重新审视方向' : '闸门判定已记录', gate === 'red' ? 'err' : 'ok');
+  loadValidatorDetail(id);
+}
+async function valInterviewOnly(id) {
+  const f = _valIvFields();
+  if (!f.summary) { toast('先填访谈摘要', 'err'); return; }
+  const d = await api('/v1/validator/interview', { method: 'POST', body: Object.assign({ id }, f) });
+  if (!d || !d.ok) { toast('记录失败：' + (d.error || d.message), 'err'); return; }
+  toast('访谈已记录（' + d.interviews + ' 次）', 'ok');
+  loadValidatorDetail(id);
+}
+async function valInterview(id) {
+  const f = _valIvFields();
+  if (!f.summary) { toast('先填访谈摘要', 'err'); return; }
+  const d = await api('/v1/validator/advance', { method: 'POST', body: Object.assign({ id }, f, { note: _valNote() }) });
+  if (!d || !d.ok) { toast('记录失败：' + (d.error || d.message), 'err'); return; }
+  toast('访谈已记录', 'ok');
+  loadValidatorDetail(id);
+}
+async function valScore(id) {
+  const sc = {};
+  for (const dim of VAL_DIMS) {
+    const el = $('#valSc_' + dim[0]);
+    sc[dim[0]] = Math.max(1, Math.min(10, Number(el && el.value) || 0));
+  }
+  const kill = ($('#valKill') && $('#valKill').value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, 10);
+  const d = await api('/v1/validator/advance', { method: 'POST', body: { id, scorecard: sc, killCriteria: kill, note: _valNote() } });
+  if (!d || !d.ok) { toast('提交失败：' + (d.error || d.message), 'err'); return; }
+  toast('Scorecard 已提交', 'ok');
+  loadValidatorDetail(id);
+}
+async function valAdvance(id) {
+  const artifact = ($('#valArtifact') && $('#valArtifact').value || '').trim();
+  const d = await api('/v1/validator/advance', { method: 'POST', body: { id, artifact, note: _valNote() } });
+  if (!d || !d.ok) { toast('推进失败：' + (d.error || d.message), 'err'); return; }
+  toast('已推进到：' + (VAL_PHASES[d.phase] || d.next), 'ok');
+  loadValidatorDetail(id);
+}
+async function startValidator() {
+  const idea = ($('#valIdea') && $('#valIdea').value || '').trim();
+  const name = ($('#valName') && $('#valName').value || '').trim();
+  if (!idea) { toast('请输入创业想法', 'err'); return; }
+  const box = $('#valStartNote');
+  if (box) box.innerHTML = '<div class="text-muted">Pre-Flight 三查中…</div>';
+  const d = await api('/v1/validator/preflight', { method: 'POST', body: { idea } });
+  if (!d || !d.ok) { if (box) box.innerHTML = '<span style="color:#ef4444">预检失败</span>'; return; }
+  if (box) box.innerHTML = d.preflight.redFlags.length ? '<span style="color:#ef4444">🔴 ' + d.preflight.redFlags.join(' · ') + '（仍可继续）</span>' : '<span style="color:#10b981">✅ Pre-Flight 通过</span>';
+  const d2 = await api('/v1/validator/start', { method: 'POST', body: { idea, name } });
+  if (!d2 || !d2.ok) { toast('创建失败：' + (d2.error || d2.message), 'err'); return; }
+  toast('项目已创建', 'ok');
+  renderValidatorList();
+}
+
+// ===== 复用选型 SOP（先检索复用，再造）=====
+async function sopGate() {
+  const need = ($('#sopNeed') && $('#sopNeed').value || '').trim();
+  const box = $('#sopGateResult');
+  if (!box) return;
+  if (!need) { box.innerHTML = '<span class="sub">先填要做的事</span>'; return; }
+  box.innerHTML = '<div class="text-muted">检索自有能力…</div>';
+  const d = await api('/v1/reuse-sop/gate?need=' + encodeURIComponent(need));
+  if (!d || !d.ok) { box.innerHTML = '<span style="color:#ef4444">门禁检索失败</span>'; return; }
+  if (d.pass === false) {
+    let html = '<div style="color:#ef4444;font-weight:600">⛔ ' + esc(d.reason) + '</div>';
+    if (d.nextAction) html += '<div class="sub" style="margin-top:4px">下一步：' + esc(d.nextAction) + '</div>';
+    if (d.hits && d.hits.length) {
+      html += '<div style="margin-top:8px;max-height:200px;overflow:auto"><table class="tbl"><thead><tr><th>自有模块</th><th>命中关键词</th><th>相关导出</th></tr></thead><tbody>';
+      html += d.hits.map(h => '<tr><td><code>' + esc(h.where) + '</code></td><td>' + esc((h.matched || []).join(', ')) + '</td><td>' + esc((h.exports || []).slice(0, 6).join(', ')) + '</td></tr>').join('');
+      html += '</tbody></table></div>';
+    }
+    box.innerHTML = html;
+  } else {
+    box.innerHTML = '<div style="color:#10b981">✅ ' + esc(d.reason) + '</div>' +
+      (d.nextAction ? '<div class="sub" style="margin-top:4px">下一步：' + esc(d.nextAction) + '</div>' : '');
+  }
+}
+
+async function sopRun() {
+  const need = ($('#sopNeed') && $('#sopNeed').value || '').trim();
+  const raw = ($('#sopCandidates') && $('#sopCandidates').value || '').trim();
+  const rate = Number(($('#sopRate') && $('#sopRate').value) || 0) || undefined;
+  const box = $('#sopRunResult');
+  if (!box) return;
+  if (!need) { toast('先填要做的事', 'err'); return; }
+  let candidates = [];
+  if (raw) {
+    try { candidates = JSON.parse(raw); }
+    catch (e) { box.innerHTML = '<div style="color:#ef4444">候选 JSON 解析失败：' + esc(e.message) + '</div>'; return; }
+  }
+  box.innerHTML = '<div class="text-muted">跑五步 SOP…</div>';
+  const d = await api('/v1/reuse-sop/run', { method: 'POST', body: { need, candidates, hourlyRate: rate } });
+  if (!d || !d.ok) { box.innerHTML = '<div style="color:#ef4444">SOP 执行失败</div>'; return; }
+
+  const conclColor = d.conclusion === 'REUSE_OWN' ? '#10b981'
+    : d.conclusion === 'NO_VIABLE_CANDIDATE' ? '#f59e0b' : '#3b82f6';
+  let html = '<div style="font-weight:700;color:' + conclColor + ';margin-bottom:8px">结论：' + esc(d.conclusion) + '</div>';
+  html += '<div class="sub" style="margin-bottom:10px">' + esc(d.verdict || '') + '</div>';
+  if (d.next) html += '<div class="sub" style="margin-bottom:10px">下一步：' + esc(d.next) + '</div>';
+
+  (d.trace || []).forEach(t => {
+    const c = t.pass ? '#10b981' : '#f59e0b';
+    html += '<div class="panel" style="margin:8px 0;padding:10px;border-left:3px solid ' + c + '">';
+    html += '<div style="font-weight:600">Step ' + t.step + ' · ' + esc(t.name) + (t.pass ? ' ✅' : ' ⛔') + '</div>';
+    if (t.reason) html += '<div class="sub" style="margin-top:2px">' + esc(t.reason) + '</div>';
+    if (t.hits && t.hits.length) {
+      html += '<div class="sub" style="margin-top:4px">命中自有模块：' + t.hits.map(h => '<code>' + esc(h.where) + '</code>').join('、') + '</div>';
+    }
+    (t.blocked || []).forEach(b => {
+      html += '<div style="margin-top:4px;color:#ef4444">✖ 协议拦截 <code>' + esc(b.repo) + '</code>：' + esc(b.why) + '</div>';
+    });
+    (t.hallucinated || []).forEach(h => {
+      html += '<div style="margin-top:4px;color:#ef4444">✖ 幻觉候选 <code>' + esc(h.repo) + '</code>：' + esc(h.why) + '</div>';
+    });
+    (t.picked || []).forEach(p => {
+      html += '<div style="margin-top:4px">✔ #' + p.rank + ' <code>' + esc(p.repo) + '</code> · <b>' + esc(p.decision) + '</b> · 协议 ' + esc((p.license && p.license.spdx) || '?') + '（传染 ' + esc((p.license && p.license.copyleft) || '?') + '）</div>';
+    });
+    if (t.summary) {
+      const s = t.summary;
+      html += '<div class="sub" style="margin-top:4px">直达：' + esc((s.direct || []).join('、') || '无') +
+        ' · 二开：' + esc((s.needFork || []).join('、') || '无') +
+        ' · 观望：' + esc((s.watch || []).join('、') || '无') +
+        ' · 弃用：' + esc((s.drop || []).join('、') || '无') + '</div>';
+    }
+    (t.items || []).forEach(i => {
+      html += '<div class="sub" style="margin-top:4px">$ <code>' + esc(i.repo) + '</code> · ' + esc(i.bucket) + ' · ' + i.hours + 'h' +
+        (i.cost ? ' · ¥' + i.cost : '') + ' · 风险：' + esc((i.risks || []).join('；')) + '</div>';
+    });
+    if (t.totalHours) html += '<div class="sub" style="margin-top:2px"><b>合计 ' + t.totalHours + ' 小时</b>' + (t.honesty ? '（' + esc(t.honesty) + '）' : '') + '</div>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
+}
+
+// ===== 初始化 =====
+// ============================================================
+// 指标卡 / 面板补全（漏斗、能力全景、获客、合伙人、收银台）
+// 说明：这些函数此前被 TAB_REFRESH 与事件挂接引用，但从未定义，
+//       导致整个 app.js 在加载时抛 ReferenceError（前 28 个 tab 全部失灵）。
+//       这里按真实端点补上，缺数据的字段一律如实置空，不编造。
+// ============================================================
+function _statCard(label, value) {
+  return '<div class="stat"><div class="stat-v">' + esc(value) + '</div><div class="stat-l">' + esc(label) + '</div></div>';
+}
+function _emptyRow(cols, text) {
+  return '<tr><td colspan="' + cols + '" class="text-muted">' + esc(text || '暂无数据') + '</td></tr>';
+}
+
+// ===== 漏斗趋势（来自 /v1/funnel/snapshots 每日快照）=====
+let _funnelChart = null;
+async function refreshFunnel() {
+  refreshCrm(); // 同一面板：CRM-lite 视图（与漏斗快照并行拉取，漏斗失败也不影响它）
+  const days = Number(($('#funnelDays') && $('#funnelDays').value) || 14);
+  const d = await api('/v1/funnel/snapshots?days=' + days);
+  const sum = $('#funnelSummary');
+  const stagesBox = $('#funnelStages');
+  const chartBox = $('#funnelChart');
+  const drillSel = $('#funnelDrillStage');
+  if (!d || !d.ok) { if (sum) sum.innerHTML = '<div class="text-muted">漏斗数据加载失败（后端不可达）</div>'; return; }
+  const data = d.data || [];
+  const latest = data.length ? data[data.length - 1] : {};
+  const byStage = (latest && latest.byStage) || {};
+  const stageNames = Object.keys(byStage);
+  if (sum) {
+    sum.innerHTML = _statCard('线索总数', latest.leads || 0)
+      + _statCard('阶段数', stageNames.length)
+      + _statCard('成交数', latest.deals || 0)
+      + _statCard('告警', latest.alerts || 0)
+      + _statCard('快照', data.length + ' / ' + days + ' 天');
+  }
+  if (stagesBox) {
+    if (!stageNames.length) stagesBox.innerHTML = '<div class="text-muted">暂无阶段数据</div>';
+    else {
+      const max = Math.max.apply(null, stageNames.map(s => Number(byStage[s]) || 0).concat([1]));
+      stagesBox.innerHTML = stageNames.map(s => {
+        const v = Number(byStage[s]) || 0;
+        const w = Math.max(4, Math.round(v / max * 100));
+        return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>' + esc(s) + '</span><span>' + v + '</span></div>'
+          + '<div style="background:rgba(127,127,127,.18);border-radius:6px;height:8px"><div style="width:' + w + '%;height:8px;border-radius:6px;background:#3b82f6"></div></div></div>';
+      }).join('');
+    }
+  }
+  if (drillSel) {
+    const cur = drillSel.value;
+    drillSel.innerHTML = '<option value="">选择阶段查看详情</option>'
+      + stageNames.map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join('');
+    if (cur) drillSel.value = cur;
+  }
+  if (chartBox) {
+    if (!window.Chart) { chartBox.innerHTML = '<div class="text-muted">图表库未加载，仅显示阶段列表</div>'; }
+    else if (!chartBox.clientWidth) {
+      // 面板隐藏时量不到尺寸，Chart.js 会报 "can't acquire context"；
+      // 交给切到本 tab 时的 refreshFunnel() 建图，这里只放占位说明。
+      if (!_funnelChart) chartBox.innerHTML = '<div class="text-muted">切到本面板后自动绘制趋势图</div>';
+    }
+    else {
+      try {
+        const labels = data.map(x => x.day || '');
+        const vals = data.map(x => Number(x.leads) || 0);
+        let cv = chartBox.querySelector('canvas');
+        if (!cv) { chartBox.innerHTML = ''; cv = document.createElement('canvas'); chartBox.appendChild(cv); }
+        if (_funnelChart) { _funnelChart.destroy(); _funnelChart = null; }
+        _funnelChart = new window.Chart(cv, {
+          type: 'line',
+          data: { labels: labels, datasets: [{ label: '线索数', data: vals, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.15)', fill: true, tension: .3, pointRadius: 2 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } }
+        });
+      } catch (e) { console.warn('funnel chart', e); }
+    }
+  }
+}
+// ===== CRM-lite（/v1/crm/*：线索→商机→成交→复购，只读经营视图）=====
+// 诚实口径由后端保证：金额只认人工确认真实成交；机器排定的触达计划不计入。
+async function refreshCrm() {
+  const note = $('#crmNote'), sum = $('#crmSummary'), oppsBox = $('#crmOpps');
+  const [p, o] = await Promise.all([api('/v1/crm/pipeline'), api('/v1/crm/opportunities')]);
+  if (!p || !p.ok) {
+    if (sum) sum.innerHTML = '<div class="text-muted">CRM 视图不可用（后端不可达，或当前部署无运营权限）</div>';
+    if (oppsBox) oppsBox.innerHTML = '';
+    if (note) note.textContent = '';
+    return;
+  }
+  if (sum) {
+    sum.innerHTML = _statCard('线索', p.total)
+      + _statCard('商机候选', p.opportunities)
+      + _statCard('待成交', p.pendingDeals)
+      + _statCard('客户', p.customers)
+      + _statCard('真实到账', '¥' + (Number(p.revenue) || 0))
+      + _statCard('待人工触达', p.waitingHuman);
+  }
+  if (note) note.textContent = '口径：金额只认人工确认的真实成交；机器排定的触达计划（planned）不计入进展，其余按当前累计计数。';
+  if (oppsBox) {
+    const list = (o && o.opportunities) || [];
+    oppsBox.innerHTML = list.length
+      ? list.map(x => '<div style="padding:8px 0;border-bottom:1px solid rgba(127,127,127,.15)">'
+          + '<b>' + esc(x.name || x.id) + '</b>'
+          + (x.industry ? ' · <span class="sub">' + esc(x.industry) + '</span>' : '')
+          + ' · 信号 ' + esc(x.signal) + ' · 触达 ' + esc(x.touch)
+          + (x.predictedPct != null ? ' · 预测成交 ' + esc(x.predictedPct) + '%' : '')
+          + '<div class="sub">' + esc(x.nextAction || '') + '</div></div>').join('')
+      : '<div class="text-muted">暂无商机候选。机器不生产进展：只有人工确认真实触达后，线索才会推进到商机候选。</div>';
+  }
+}
+async function funnelDrill(stage) {
+  const box = $('#funnelDrill');
+  if (!box) return;
+  if (!stage) { box.innerHTML = '选择上方阶段查看明细'; return; }
+  box.innerHTML = '<div class="text-muted">加载中…</div>';
+  const d = await api('/v1/gtm/funnel/drill?stage=' + encodeURIComponent(stage));
+  if (!d || !d.ok) { box.innerHTML = '<div style="color:#ef4444">加载失败</div>'; return; }
+  const leads = d.leads || [];
+  if (!leads.length) { box.innerHTML = '<div class="text-muted">该阶段暂无线索</div>'; return; }
+  box.innerHTML = '<div class="scrollable" style="max-height:260px"><table class="tbl"><thead><tr><th>ID</th><th>名称</th><th>来源</th><th>阶段</th><th>创建时间</th></tr></thead><tbody>'
+    + leads.map(l => '<tr><td>' + esc(l.id) + '</td><td>' + esc(l.name || l.company || '') + '</td><td>' + esc(l.source || '') + '</td><td>' + esc(l.stage || '') + '</td><td>' + (l.createdAt ? fmt(l.createdAt) : '') + '</td></tr>').join('')
+    + '</tbody></table></div>';
+}
+
+// ===== 能力全景（/v1/capability/map：自动盘点 + 够不到/空转两类缺口）=====
+async function refreshCapmap() {
+  const topic = ($('#capmapTopic') && $('#capmapTopic').value) || 'all';
+  const d = await api('/v1/capability/map' + (topic && topic !== 'all' ? '?topic=' + encodeURIComponent(topic) : ''));
+  const sum = $('#capmapSummary');
+  const idleBox = $('#capmapIdle');
+  const gapsBox = $('#capmapGaps');
+  const tabsBox = $('#capmapTabs');
+  const sel = $('#capmapTopic');
+  if (!d || !d.ok) { if (sum) sum.innerHTML = '<div class="text-muted">能力盘点失败（后端不可达）</div>'; return; }
+  if (sum) {
+    sum.innerHTML = _statCard('core 模块', d.coreModules || 0)
+      + _statCard('HTTP 端点', d.endpoints || 0)
+      + _statCard('前端 tab', d.frontendTabs || 0)
+      + _statCard('可达端点', d.reachableEndpoints || 0)
+      + _statCard('够不到', d.unreachableEndpoints || 0)
+      + _statCard('覆盖率', (d.reachabilityPct || 0) + '%');
+  }
+  if (sel && (!topic || topic === 'all')) {
+    const topics = (d.gapsByTopic || []).map(g => g.topic);
+    sel.innerHTML = '<option value="all">全部主题</option>' + topics.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+    sel.value = 'all';
+  }
+  if (idleBox) {
+    const idle = d.idle || [];
+    idleBox.innerHTML = idle.length
+      ? idle.map(x => '· <b>' + esc(x.module || '') + '</b> · ' + esc(x.field || '') + ' = ' + esc(x.value) + (x.note ? '（' + esc(x.note) + '）' : '')).join('<br>')
+      : '<span style="color:#10b981">✓ 暂未发现空转机制</span>';
+  }
+  if (gapsBox) {
+    const gaps = d.gapsByTopic || [];
+    gapsBox.innerHTML = gaps.length
+      ? gaps.map(g => '<details style="margin-bottom:6px"><summary style="cursor:pointer">' + esc(g.topic) + ' · ' + g.count + ' 个够不到</summary>'
+          + '<div style="margin:6px 0 0 12px;font-family:ui-monospace,monospace;font-size:11px">' + (g.endpoints || []).map(e => esc(e)).join('<br>') + '</div></details>').join('')
+      : '<span style="color:#10b981">✓ 该主题下没有够不到的能力</span>';
+  }
+  if (tabsBox) {
+    const tabs = d.tabs || [];
+    tabsBox.innerHTML = tabs.map(t => '<span class="msg-badge" style="margin:2px">' + esc(t) + '</span>').join(' ') || '<span class="text-muted">无</span>';
+  }
+}
+
+// ===== 获客市场（ICP 画像库 / 触达序列 / 落地页 / 线索阶段漏斗）=====
+async function refreshGtm() {
+  const res = await Promise.all([api('/v1/gtm/icps'), api('/v1/gtm/funnel'), api('/v1/money/leads/funnel')]);
+  const d = res[0] || {};
+  const f = res[1] || {};
+  const lf = res[2] || {};
+  if (!d.ok) { uiFail('GTM 数据加载失败'); return; }
+  const icps = d.icps || [];
+  const seqs = d.sequences || {};
+  const icpTb = $('#gtmIcpTbl tbody');
+  if (icpTb) {
+    icpTb.innerHTML = icps.length ? icps.map(i => '<tr title="' + esc((i.why || '')) + '">'
+      + '<td>' + esc(i.id) + '</td><td>' + esc(i.name) + '</td><td>—</td><td>—</td>'
+      + '<td>' + esc((i.pain || [])[0] || '') + '</td><td>' + esc(i.price || '') + '</td><td>' + esc(i.firstAsk || '') + '</td></tr>').join('')
+      : _emptyRow(7, '暂无 ICP 画像');
+  }
+  const seqTb = $('#gtmSeqTbl tbody');
+  if (seqTb) {
+    const rows = [];
+    Object.keys(seqs).forEach(function (k) { (seqs[k] || []).forEach(function (s) { rows.push({ k: k, s: s }); }); });
+    seqTb.innerHTML = rows.length ? rows.map(r => '<tr>'
+      + '<td>' + esc(r.k + '-D' + (r.s.day || 0)) + '</td><td>' + esc(r.k) + '</td><td>' + esc(r.s.channel || '') + '</td>'
+      + '<td>Day ' + esc(r.s.day || 0) + '</td><td>' + esc(r.s.action || '') + '</td><td>—</td><td>' + esc(r.s.goal || '') + '</td></tr>').join('')
+      : _emptyRow(7, '暂无触达序列');
+  }
+  const sel = $('#gtmLandingIcp');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = icps.map(i => '<option value="' + esc(i.id) + '">' + esc(i.name) + '</option>').join('') || '<option value="">（无 ICP）</option>';
+    if (cur) sel.value = cur;
+  }
+  const box = $('#gtmFunnelDetail');
+  if (box) {
+    const stages = lf.ok ? (lf.funnel || []) : [];
+    const gtmLine = f.ok
+      ? '<div class="sub" style="margin-bottom:8px">触达漏斗：已触达 <b>' + (f.sent || 0) + '</b> · 感兴趣 <b>' + (f.interested || 0) + '</b> · 已成交 <b>' + (f.paid || 0) + '</b>（触达→成交 ' + esc(f.sentToPaid || '—') + '）</div>'
+      : '';
+    if (!stages.length) {
+      box.innerHTML = gtmLine + '<div class="text-muted">暂无线索阶段数据（点击上方某阶段可下钻）</div>';
+    } else {
+      const max = Math.max.apply(null, stages.map(s => Number(s.count) || 0).concat([1]));
+      box.innerHTML = gtmLine + stages.map(s => {
+        const v = Number(s.count) || 0;
+        const w = Math.max(4, Math.round(v / max * 100));
+        return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>' + esc(s.label || s.stage) + ' · ¥' + (s.amount || 0) + '</span><span>' + v + '</span></div>'
+          + '<div class="gtm-stage" data-stage="' + esc(s.stage) + '" style="cursor:pointer;background:rgba(127,127,127,.18);border-radius:6px;height:8px"><div style="width:' + w + '%;height:8px;border-radius:6px;background:' + esc(s.color || '#3b82f6') + '"></div></div></div>';
+      }).join('');
+      box.querySelectorAll('.gtm-stage').forEach(function (el) { el.onclick = function () { gtmDrillStage(el.dataset.stage); }; });
+    }
+  }
+}
+
+// ===== GTM 诚实体检（/v1/gtm/diagnose：把未落地项如实摆出，不粉饰）=====
+async function refreshGtmDiag() {
+  const box = $('#gtmFunnelDetail');
+  if (box) box.innerHTML = '<div class="text-muted">体检中…</div>';
+  const d = await api('/v1/gtm/diagnose');
+  if (!d || !d.ok) {
+    if (box) box.innerHTML = '<div style="color:#ef4444">体检失败：' + esc((d && d.error) || '后端不可达') + '</div>';
+    return;
+  }
+  if (box) {
+    let html = '';
+    if (d.verdict) html += '<div style="margin-bottom:6px"><b>结论：</b>' + esc(d.verdict) + '</div>';
+    if (d.next) html += '<div class="sub" style="margin-bottom:6px">下一步：' + esc(d.next) + '</div>';
+    const issues = d.issues || d.gaps || d.findings || [];
+    if (Array.isArray(issues) && issues.length) {
+      html += '<div class="sub">未落地项：</div>' + issues.map(x => '<div class="sub">· ' + esc(typeof x === 'string' ? x : (x.detail || x.title || JSON.stringify(x))) + '</div>').join('');
+    }
+    html += '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px">原始诊断 JSON</summary><pre class="code" style="max-height:220px">' + esc(JSON.stringify(d, null, 2)) + '</pre></details>';
+    box.innerHTML = html;
+  }
+  toast('诚实体检完成', 'ok');
+}
+
+// ===== 合伙人分销（招募台账 / 交付验收 / 分润结算）=====
+async function refreshPartner() {
+  const res = await Promise.all([api('/v1/partner'), api('/v1/partner/deliveries')]);
+  const b = res[0] || {};
+  const del = res[1] || {};
+  if (!b.ok) { toast('合伙人数据加载失败', 'bad'); return; }
+  const partners = b.partners || [];
+  const delList = (del && del.ok && del.list) || [];
+  const nameOf = function (id) { const p = partners.find(x => x.id === id); return p ? p.name : id; };
+  const enrollTb = $('#partnerEnrollTbl tbody');
+  if (enrollTb) {
+    enrollTb.innerHTML = partners.length ? partners.map(p => '<tr>'
+      + '<td>' + esc(p.id) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.contact || '—') + '</td>'
+      + '<td>—</td><td>' + esc(p.status || '') + '</td><td>' + (p.joinedAt ? fmt(p.joinedAt) : '') + '</td><td>—</td></tr>').join('')
+      : _emptyRow(7, '暂无合伙人申请');
+  }
+  const delTb = $('#partnerDeliverTbl tbody');
+  if (delTb) {
+    delTb.innerHTML = delList.length ? delList.map(x => '<tr class="partner-deliver-row" data-pid="' + esc(x.partnerId) + '" style="cursor:pointer">'
+      + '<td>' + esc(x.id) + '</td><td>' + esc(nameOf(x.partnerId)) + '</td><td>' + esc(x.customer || '') + '</td>'
+      + '<td>' + (x.amount || 0) + '</td><td>' + esc(x.accepted ? '已验收' : '待验收') + '</td>'
+      + '<td>' + (x.acceptedAt ? fmt(x.acceptedAt) : '') + '</td><td>查看明细</td></tr>').join('')
+      : _emptyRow(7, '暂无交付记录');
+    delTb.querySelectorAll('.partner-deliver-row').forEach(function (tr) { tr.onclick = function () { showPartnerDeliverDetail(tr.dataset.pid); }; });
+  }
+  const settleTb = $('#partnerSettleTbl tbody');
+  if (settleTb) {
+    settleTb.innerHTML = partners.length ? partners.map(p => {
+      const due = Math.round(((p.earned || 0) - (p.paidOut || 0)) * 100) / 100;
+      return '<tr><td>' + esc(p.id) + '</td><td>' + esc(p.name) + '</td><td>¥' + due + '</td><td>¥' + (p.paidOut || 0) + '</td>'
+        + '<td>' + esc(due > 0 ? '待结算' : '已结清') + '</td><td>—</td></tr>';
+    }).join('') : _emptyRow(6, '暂无结算记录');
+  }
+}
+
+// ===== 收银台（资金看板 / 推广池 / 线索营收 / 提现 / 核销）=====
+async function refreshCashier() {
+  const res = await Promise.all([
+    api('/v1/money/kpi'), api('/v1/money/budget'), api('/v1/money/leads?limit=50'),
+    api('/v1/payout/pending'), api('/v1/money/writeoffs')
+  ]);
+  const kpi = res[0] || {};
+  const bud = res[1] || {};
+  const leadsR = res[2] || {};
+  const payoutR = res[3] || {};
+  const woR = res[4] || {};
+  const kBox = $('#cashierKpi');
+  if (kBox) {
+    if (kpi.ok) {
+      kBox.innerHTML = _statCard('实收', '¥' + (kpi.realized || 0))
+        + _statCard('已结算外币', '¥' + (kpi.foreign || 0))
+        + _statCard('待回款', '¥' + (kpi.pending || 0))
+        + _statCard('退款', '¥' + (kpi.refunded || 0))
+        + _statCard('KPI 进度', (kpi.pct || 0) + '%');
+    } else kBox.innerHTML = '<div class="text-muted">资金看板加载失败</div>';
+  }
+  const pBox = $('#cashierPromo');
+  if (pBox) {
+    if (bud.ok && bud.budget) {
+      const g = bud.budget;
+      pBox.innerHTML = _statCard('预算总额', '¥' + (g.allotted || 0)) + _statCard('已花', '¥' + (g.spent || 0)) + _statCard('可用', '¥' + (g.avail || 0));
+    } else pBox.innerHTML = '<div class="text-muted">推广池加载失败</div>';
+  }
+  const chBox = $('#cashierChannels');
+  if (chBox && !chBox.dataset.diaged) {
+    chBox.innerHTML = '<span class="text-muted">点击「通道自检」获取支付通道真实状态</span>';
+  }
+  const leadsTb = $('#cashierLeadsTbl tbody');
+  if (leadsTb) {
+    const leads = leadsR.leads || [];
+    leadsTb.innerHTML = leads.length ? leads.map(l => '<tr>'
+      + '<td>' + esc(l.id) + '</td><td>' + esc(l.name || l.company || '') + '</td><td>¥' + (l.amt || 0) + '</td>'
+      + '<td>' + esc(l.status || l.stage || '') + '</td><td>' + esc(l.source || '') + '</td><td>' + (l.createdAt ? fmt(l.createdAt) : '') + '</td></tr>').join('')
+      : _emptyRow(6, '暂无线索营收记录');
+  }
+  const payTb = $('#cashierPayoutTbl tbody');
+  if (payTb) {
+    const list = (payoutR && payoutR.list) || (payoutR && payoutR.pending) || [];
+    payTb.innerHTML = Array.isArray(list) && list.length ? list.map(x => '<tr>'
+      + '<td>' + esc(x.type || x.kind || '') + '</td><td>' + esc(x.target || x.partnerId || '') + '</td><td>¥' + (x.amt || x.amount || 0) + '</td>'
+      + '<td>' + esc(x.status || '') + '</td><td>' + (x.at ? fmt(x.at) : '') + '</td><td>—</td></tr>').join('')
+      : _emptyRow(6, '暂无待结算/提现记录');
+  }
+  const woTb = $('#cashierWriteoffTbl tbody');
+  if (woTb) {
+    const list = (woR && woR.writeoffs) || [];
+    woTb.innerHTML = list.length ? list.map(x => '<tr>'
+      + '<td>' + esc(x.id) + '</td><td>' + esc(x.revId || x.order || '') + '</td><td>¥' + (x.amt || 0) + '</td>'
+      + '<td>' + esc(x.type || '核销') + '</td><td>' + (x.at ? fmt(x.at) : '') + '</td></tr>').join('')
+      : _emptyRow(5, '暂无核销记录');
+  }
+}
+
+// ===== 收银台·通道自检（真实触碰支付宝诊断 + 收款账户校验）=====
+async function cashierDiag() {
+  const box = $('#cashierChannels');
+  if (box) box.innerHTML = '<span class="text-muted">自检中…</span>';
+  const res = await Promise.all([api('/v1/pay/alipay/check'), api('/v1/payout/config')]);
+  const ali = res[0] || {};
+  const cfg = res[1] || {};
+  const chips = [];
+  const chip = function (name, ok, text) {
+    const color = ok === true ? '#10b981' : ok === false ? '#ef4444' : '#f59e0b';
+    return '<span class="msg-badge" style="border-left:3px solid ' + color + '">' + esc(name) + '：' + esc(text) + '</span>';
+  };
+  if (ali.ok) chips.push(chip('支付宝', ali.usable === true, ali.usable ? '通道可用' : (ali.verdict || '未确认')));
+  else chips.push(chip('支付宝', false, ali.error || '诊断未通过（需运营权限）'));
+  if (cfg.ok) chips.push(chip('收款账户', !!(cfg.masked && Object.keys(cfg.masked).length), cfg.masked && cfg.masked.account ? ('已配置 ' + cfg.masked.account) : '未配置'));
+  else chips.push(chip('收款账户', null, '未配置或无权查看'));
+  chips.push(chip('PayPal', null, '需网关回调确认'));
+  chips.push(chip('MoltSpay', null, '需网关回调确认'));
+  if (box) { box.innerHTML = chips.join(' '); box.dataset.diaged = '1'; }
+  toast('通道自检完成', 'ok');
+}
+
+// 线索详情（GTM 下钻用）：按 id 查真实线索并提示，不编造
+async function showLeadDetail(id) {
+  if (!id) return;
+  const d = await api('/v1/money/leads?limit=200');
+  const l = ((d && d.leads) || []).find(x => x.id === id);
+  if (!l) { toast('未找到线索 ' + id, 'bad'); return; }
+  toast((l.name || l.id) + ' · ' + (l.stage || '') + ' · ' + (l.source || ''), 'ok');
+}
+
+(async function init() {
+  buildThemes('emerald');
+  regenChips();
+  refreshFrameworks().catch(() => {});
+  refreshAutopilot().catch(() => {});
+  refreshCmd().catch(() => {});
+  refreshTalents().catch(() => {});
+  // 模型下拉
+  const d = await api('/v1/providers');
+  if (d.ok) {
+    const sel = $('#providerSel');
+    sel.innerHTML = d.providers.map(p => '<option value="' + p.id + '">' + esc(p.name) + (p.hasKey ? '' : '（未配置）') + '</option>').join('');
+  }
+  // 历史消息
+  const m = await api('/v1/messages?limit=40');
+  if (m.ok) {
+    $('#chatList').innerHTML = m.messages.map(x => {
+      const role = x.role === 'user' ? 'user' : 'bot';
+      const meta = role === 'bot' && x.engine ? '<span class="msg-badge">' + esc(x.engine) + '</span>' : '';
+      const tools = role === 'bot' && x.tools && x.tools.length
+        ? '<div class="msg-tools">🛠 自动调用 ' + x.tools.map(t => '<span class="msg-badge">' + esc(t) + '</span>').join('') + '</div>' : '';
+      return '<div class="msg ' + role + '">' + meta + '<span>' + esc(x.content).replace(/\n/g, '<br>') + '</span>' + tools + '</div>';
+    }).join('');
+    autoscroll($('#chatList'));
+  }
+  if (!hasMic) $('#micBtn').title = '语音输入（当前浏览器不支持）';
+  if (!hasCam) $('#camBtn').title = '摄像头（当前环境不支持）';
+  poll();
+  unstuckPane($('#tab-' + activeTab));   // 首屏兜底：失败不留永久「加载中…」
+  setInterval(poll, 5000);
+  setInterval(() => refreshDecisions().catch(() => {}), 6000);
+  setInterval(() => refreshOrg().catch(() => {}), 8000);
+  setInterval(() => refreshProjects().catch(() => {}), 10000);
+  setInterval(() => refreshAudit().catch(() => {}), 15000);
+  setInterval(() => refreshTasks().catch(() => {}), 9000);
+  setInterval(() => refreshKn().catch(() => {}), 20000);
+  setInterval(() => refreshSkills().catch(() => {}), 30000);
+  setInterval(() => refreshFrameworks().catch(() => {}), 45000);
+  setInterval(() => refreshAutopilot().catch(() => {}), 30000);
+  setInterval(() => refreshCmd().catch(() => {}), 30000);
+  setInterval(() => refreshGuard().catch(() => {}), 60000);
+  setInterval(() => refreshWar().catch(() => {}), 45000);
+  $('#warRefresh').onclick = () => refreshWar();
+  // compliance 事件
+  $('#complianceRefresh') && ($('#complianceRefresh').onclick = refreshCompliance);
+  $('#complianceCtx') && ($('#complianceCtx').onchange = refreshCompliance);
+  // reuse-sop 事件
+  $('#sopGate') && ($('#sopGate').onclick = sopGate);
+  // 第二个“跑完整五步”按钮单独 id，否则 $(\'#sopRun\') 永远命中第一个按钮，
+  // 第一个按钮被 sopRun() 覆盖、第二个按钮没有处理器（两个面板都失效）。
+  $('#sopRunFull') && ($('#sopRunFull').onclick = sopRun);
+  $('#privacyErase') && ($('#privacyErase').onclick = compliancePrivacyErase);
+  $('#privacyExport') && ($('#privacyExport').onclick = compliancePrivacyExport);
+  // validator 事件（创业验证所）
+  $('#valGo') && ($('#valGo').onclick = startValidator);
+  $('#valIdea') && ($('#valIdea').onkeydown = e => { if (e.key === 'Enter') startValidator(); });
+  $('#valListBtn') && ($('#valListBtn').onclick = () => { showValView('start'); renderValidatorList(); });
+  $('#valBackBtn') && ($('#valBackBtn').onclick = () => { showValView('start'); renderValidatorList(); });
+  // gtm 事件
+  $('#gtmRefresh') && ($('#gtmRefresh').onclick = refreshGtm);
+  $('#gtmGenLanding') && ($('#gtmGenLanding').onclick = refreshGtmLanding);
+  $('#gtmDiag') && ($('#gtmDiag').onclick = refreshGtmDiag);
+  $('#gtmLandingIcp') && ($('#gtmLandingIcp').onchange = () => { $('#gtmLandingOut').hidden = true; });
+  // partner 事件
+  $('#partnerRefresh') && ($('#partnerRefresh').onclick = refreshPartner);
+  // cashier 事件
+  $('#cashierRefresh') && ($('#cashierRefresh').onclick = refreshCashier);
+  $('#cashierDiag') && ($('#cashierDiag').onclick = cashierDiag);
+  // funnel 事件
+  $('#funnelRefresh') && ($('#funnelRefresh').onclick = refreshFunnel);
+  $('#funnelDays') && ($('#funnelDays').onchange = refreshFunnel);
+  $('#funnelDrillStage') && ($('#funnelDrillStage').onchange = () => funnelDrill($('#funnelDrillStage').value));
+  // capmap 事件
+  $('#capmapRefresh') && ($('#capmapRefresh').onclick = refreshCapmap);
+  $('#capmapTopic') && ($('#capmapTopic').onchange = refreshCapmap);
+  $('#checkoutCreate') && ($('#checkoutCreate').onclick = checkoutCreate);
+  $('#payoutConfigSave') && ($('#payoutConfigSave').onclick = payoutConfigSave);
+  $('#kpiRefreshBtn') && ($('#kpiRefreshBtn').onclick = async () => {
+    const r = await api('/v1/money/kpi', { method: 'GET' });
+    if (r.ok) {
+      rollCount($('#kpiRealized'), r.realized);
+      rollCount($('#kpiForeign'), r.foreign);
+      rollCount($('#kpiForeignPending'), r.foreignPending);
+      rollCount($('#kpiRefunded'), r.refunded);
+      $('#kpiRealized').attr('title', '实收：' + r.realized);
+      $('#kpiForeign').attr('title', '已结算外币：' + r.foreign);
+      $('#kpiForeignPending').attr('title', '未结算外币：' + r.foreignPending);
+      $('#kpiRefunded').attr('title', '退款：' + r.refunded);
+      toast('KPI 快照更新', 'ok');
+    // 【KPI 趋势存储】每次获取 KPI 时，将数据推入历史数组，保留最近 7 天记录
+    const KPI_HISTORY_MAX = 7;
+    KPI_HISTORY = KPI_HISTORY || [];
+    KPI_HISTORY.unshift({ at: Date.now(), realized: r.realized, foreign: r.foreign, foreignPending: r.foreignPending, refunded: r.refunded });
+    if (KPI_HISTORY.length > KPI_HISTORY_MAX) KPI_HISTORY = KPI_HISTORY.slice(0, KPI_HISTORY_MAX);
+    // 简单统计：计算退款率 = refunded / (refunded + realized) ，若分母为 0 则为 0
+    const total = r.refunded + r.realized;
+    const refundRate = total > 0 ? (r.refunded / total * 100).toFixed(1) + '%' : '0%';
+    // 在控制台展示趋势信息（仅开发/调试模式下展示）
+    console.log('KPI history updated, refund rate: ' + refundRate);
+    // 可选：在前端展示历史趋势（需配合图表库，此处仅作框架}
+    toast('KPI 快照更新\n退款率：' + refundRate, 'ok');
+    } else {
+      toast('获取 KPI 失败：' + r.error, 'bad');
+    }
+  });
+  $('#instructionCreate') && ($('#instructionCreate').onclick = instructionCreate);
+  // === 结算快捷入口事件挂接 ===
+  $('#settleKpiBtn') && ($('#settleKpiBtn').onclick = async () => {
+    const r = await api('/v1/money/kpi', { method: 'GET' });
+    if (r.ok) { toast('KPI 快照：realized=' + r.realized + ', foreign=' + r.foreign + ', foreignPending=' + r.foreignPending + ', refunded=' + r.refunded, 'ok'); }
+    else toast('获取 KPI 失败：' + r.error, 'bad');
+  });
+  $('#settleConvertBtn') && ($('#settleConvertBtn').onclick = async () => {
+    if (!adminAuthed(req)) { toast('无运营权限', 'bad'); return; }
+    const b = await readBody(req).catch(() => ({}));
+    const r = await api('/v1/money/leads/convert', { method: 'POST', body: JSON.stringify({ id: b.id || '', amount: b.amount || 0, channel: b.channel || 'moltspay' }) });
+    if (r.ok) toast('成交确认已记挂账（不计 KPI）+ 开应收', 'ok');
+    else toast('确认成交失败：' + r.error, 'bad');
+  });
+  $('#settleSettleBtn') && ($('#settleSettleBtn').onclick = async () => {
+    if (!adminAuthed(req)) { toast('无运营权限', 'bad'); return; }
+    const b = await readBody(req).catch(() => ({}));
+    const r = await api('/v1/money/settle', { method: 'POST', body: JSON.stringify({ revId: b.revId || '', evidence: b.evidence || '' }) });
+    if (r.ok) toast('结算转实收成功（计入 KPI realized 桶）', 'ok');
+    else toast('结算失败：' + r.error, 'bad');
+  });
+  $('#settleCreditBtn') && ($('#settleCreditBtn').onclick = async () => {
+    if (!adminAuthed(req)) { toast('无运营权限', 'bad'); return; }
+    const b = await readBody(req).catch(() => ({}));
+    const r = await api('/v1/money/credit', { method: 'POST', body: JSON.stringify({ amt: Number(b.amt || 0), source: b.source || 'manual', method: b.method || 'alipay', settled: true }) });
+    if (r.ok) toast('记账成功：抬高 revenue/KPI（' + r.curr + ' ’+ r.settled + ‘）', 'ok');
+    else toast('记账失败：' + r.error, 'bad');
+  });
+  $('#settleAlipayBtn') && ($('#settleAlipayBtn').onclick = async () => {
+    if (!adminAuthedStrict(req)) { toast('无运营权限：通道诊断限本机回环或管理令牌', 'bad'); return; }
+    const r = await api('/v1/pay/alipay/check', { method: 'GET', query: {} });
+    if (r.ok) {
+      const v = ' usable=' + r.usable + ' verdict=' + (r.verdict || '');
+      toast('支付宝诊断：' + v, 'ok');
+    } else toast('诊断失败：' + r.error, 'bad');
+  });
+  $('#dunningSend') && ($('#dunningSend').onclick = dunningSend);
+  // outreach 事件
+  $('#outreachRefresh') && ($('#outreachRefresh').onclick = refreshOutreach);
+  $('#outreachChannel') && ($('#outreachChannel').onchange = refreshOutreach);
+  $('#outreachDate') && ($('#outreachDate').onchange = refreshOutreach);
+  // convert 事件
+  $('#convertRefresh') && ($('#convertRefresh').onclick = refreshConvert);
+  $('#convertStage') && ($('#convertStage').onchange = refreshConvert);
+
+  refreshTasks().catch(() => {});
+  refreshKn().catch(() => {});
+})();

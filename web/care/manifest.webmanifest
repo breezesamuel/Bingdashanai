@@ -1,0 +1,14 @@
+{
+  "name": "丙大山陪护",
+  "short_name": "陪护",
+  "description": "老人建档、子女绑定、SOS 告警与监控中心",
+  "start_url": "/care/elder.html",
+  "scope": "/care/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/care/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

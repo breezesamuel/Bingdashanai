@@ -1,0 +1,4 @@
+source: https://github.com/callstack/agent-device (MIT)
+vendored: skills/{agent-device,android-emulator,ios-simulator,dogfood}/SKILL.md only
+reason: 仓库约 185MB（monorepo），仅取 skill 文件，避免把整个工程拖进本项目
+fetched: 2026-10-14T08:28:03.452Z

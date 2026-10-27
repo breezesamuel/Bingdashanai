@@ -1,0 +1,127 @@
+{
+  "name": "bingdashan-ai",
+  "version": "2026.0.3",
+  "productName": "BingDashanAI",
+  "description": "丙大山AI Agent - 智能对话·决策中心·组织大脑·项目管理·审计日志·系统设置",
+  "type": "commonjs",
+  "main": "electron/main.cjs",
+  "author": "BingDashan",
+  "scripts": {
+    "start": "electron .",
+    "mcp": "node mcp-server.js",
+    "dev": "node server.js",
+    "icons": "node scripts/gen-icons.js",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist:all": "electron-builder --win --mac --linux",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios",
+    "cap:sync": "cap sync",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "platform:check": "node scripts/platform-check.js",
+    "release:make": "node scripts/make-release.js",
+    "license:keygen": "node scripts/gen-license.js keygen",
+    "license:issue": "node scripts/gen-license.js issue",
+    "license:verify": "node scripts/gen-license.js verify",
+    "license:fp": "node scripts/gen-license.js fp",
+    "license:signing": "node scripts/gen-license.js signing",
+    "test": "node test/e2e/suites/goal-e2e-runner.js"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "iztro": "^2.6.3",
+    "lunar-javascript": "^1.7.7",
+    "playwright": "^1.64.1",
+    "pm2": "^7.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.bingdashan.agent",
+    "productName": "BingDashanAI",
+    "artifactName": "BingDashanAI-${version}-${os}-${arch}.${ext}",
+    "npmRebuild": false,
+    "asar": true,
+    "files": [
+      "core/**/*",
+      "web/**/*",
+      "electron/**/*",
+      "server.js",
+      "mcp-server.js",
+      "package.json",
+      "license.pub",
+      "!**/*.map",
+      "!**/test-*",
+      "!.env",
+      "!**/*.md",
+      "!web/downloads/**",
+      "!web/releases.json",
+      "skills/agent-skills/**/*"
+    ],
+    "directories": {
+      "output": "app",
+      "buildResources": "build"
+    },
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "web/icons/icon-512.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "丙大山AI ${version}"
+    },
+    "linux": {
+      "icon": "web/icons/icon-512.png",
+      "category": "Office",
+      "synopsis": "丙大山AI Agent",
+      "description": "丙大山AI Agent - 智能对话·决策中心·组织大脑·项目管理·审计日志·系统设置",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}

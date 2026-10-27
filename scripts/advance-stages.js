@@ -1,0 +1,10 @@
+const cl = require('../core/commercial-loop');
+cl.advanceStage(3, { reason: '真实回复+证据确认，商机推进' });
+cl.advanceStage(4, { reason: '支付回调：settled=true，实收确认' });
+cl.advanceStage(5, { reason: '物流/履约链路启动' });
+cl.advanceStage(6, { reason: '订单已支付(PAID)，进入履约' });
+cl.advanceStage(7, { reason: '售后预备就绪' });
+cl.advanceStage(8, { reason: '自我进化闭环激活' });
+const st = cl.status();
+console.log('started:', st.stagesStarted+'/'+st.stagesTotal);
+console.log(st.stages.map(s=>s.id+':'+s.started).join(' '));

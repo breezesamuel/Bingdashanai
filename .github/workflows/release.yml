@@ -1,0 +1,209 @@
+name: release
+
+# 打 tag（v*）即产出**可发布**的安装包 + 客户自助下载清单 web/releases.json。
+#
+# 与 build-desktop.yml 的区别：
+#   build-desktop 只是把产物留在 Actions Artifacts（给人看/给人下）；
+#   本工作流把产物挂成 **GitHub Release 资产**，并用 scripts/make-release.js
+#   基于真实文件算出 SHA256 生成清单，页面才能给出可点的下载链接。
+#
+# 诚实边界：
+#   · macOS 未签名（没有 Apple Developer 证书），用户首次打开需右键→打开；
+#   · iOS 的 IPA 需要 Xcode + 证书，无法在这里产出 → 手机端走 PWA（见 web/download.html）；
+#   · Android 产出的是 debug APK（无签名密钥），且它是指向托管服务端的壳（Hosted 模式）。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布 tag（如 v2026.0.1）；留空则用当前 ref'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+          - os: ubuntu-latest
+            target: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate icons
+        run: node scripts/gen-icons.js
+
+      # license.pub 是客户端唯一可信的验签公钥，必须已经提交进仓库。
+      # 缺了它，用户装完以后**任何授权码都验不过**（NO_PUBKEY），且只有到用户手里才会发现。
+      - name: Ensure license.pub is committed
+        shell: bash
+        run: |
+          if [ ! -s license.pub ]; then
+            echo "::error::license.pub 缺失或为空。请先在本机执行 npm run license:keygen，并提交生成的 license.pub（公钥，可公开）。"
+            exit 1
+          fi
+          echo "license.pub OK"
+
+      - name: Build ${{ matrix.target }}
+        run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            app/*.exe
+            app/*.dmg
+            app/*.zip
+            app/*.AppImage
+            app/*.deb
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install deps + sync web assets
+        run: |
+          npm ci --ignore-scripts
+          node scripts/gen-icons.js
+          npx cap sync android
+
+      # 诚实边界：有 keystore secret 才出【签名 release】APK；否则出 debug 包（可侧载、未签名），
+      # 并在文件名里如实标注，绝不在没有密钥时假装能发商店。
+      - name: Detect signing secret
+        id: sign
+        run: |
+          if [ -n "${{ secrets.RELEASE_KEYSTORE }}" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble (signed release if keystore present, else debug)
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE }}
+          RELEASE_KEYSTORE_PWD: ${{ secrets.RELEASE_KEYSTORE_PWD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_ALIAS_PWD: ${{ secrets.RELEASE_KEY_ALIAS_PWD }}
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
+            echo "== signed release APK =="
+            echo "$RELEASE_KEYSTORE_B64" | base64 -d > release.jks
+            ./gradlew --no-daemon assembleRelease \
+              -Pandroid.injected.signing.store.file=release.jks \
+              -Pandroid.injected.signing.store.password="$RELEASE_KEYSTORE_PWD" \
+              -Pandroid.injected.signing.key.alias="$RELEASE_KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$RELEASE_KEY_ALIAS_PWD"
+            cp app/build/outputs/apk/release/*.apk ../app-android-release.apk
+          else
+            echo "== debug APK (unsigned, sideload) =="
+            ./gradlew --no-daemon assembleDebug
+          fi
+
+      # 重命名成带版本/平台的规范名，并如实标注签名状态。
+      - name: Rename + tag APK
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          mkdir -p app-android
+          if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
+            cp app-android-release.apk "app-android/BingDashanAI-${VER}-android-universal-signed.apk"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk "app-android/BingDashanAI-${VER}-android-universal.apk"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android
+          path: app-android/*.apk
+          if-no-files-found: error
+  release:
+    needs: [build, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 所有平台的产物合并到 app/ —— make-release.js 正是在这里扫描（见 SCAN_DIRS）。
+      - uses: actions/download-artifact@v4
+        with:
+          path: app
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-android
+          path: app
+
+      - name: Build releases.json (real SHA256 from real files)
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          node scripts/make-release.js \
+            --base "https://github.com/${{ github.repository }}/releases/download/${TAG}" \
+            --tag "$TAG"
+
+      - name: Show manifest
+        run: cat web/releases.json
+
+      # 若清单里一条可下载产物都没有，说明构建全挂了：此时必须失败，不能发一个空 Release。
+      - name: Fail if manifest has no published artifact
+        run: |
+          node -e "const m=require('./web/releases.json'); if(!m.artifacts.some(a=>a.published)){console.error('::error::清单里没有任何可下载产物，取消发布');process.exit(1)}"
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "丙大山AI $TAG" --generate-notes
+          find app -maxdepth 1 -type f \
+            \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.apk' \) \
+            -print0 | xargs -0 -r gh release upload "$TAG" --clobber
+          gh release upload "$TAG" web/releases.json --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: releases-json
+          path: web/releases.json

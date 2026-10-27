@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>丙大山陪护 · 子女端</title>
+<link rel="manifest" href="/care/manifest.webmanifest">
+<style>
+  :root { --bg:#0b1020; --panel:#151d36; --line:#2b3763; --fg:#eef2ff; --dim:#a8b3d6; --red:#ff6b6b; --green:#3ddc97; --amber:#ffc857; --blue:#6ea8fe; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 "PingFang SC","Microsoft YaHei",-apple-system,sans-serif; padding:16px 14px 70px; }
+  .top { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .top h1 { font-size:19px; margin:0; flex:1; }
+  .lang button { font:inherit; font-size:13px; background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:7px; padding:5px 9px; }
+  .lang button.on { color:var(--fg); border-color:var(--blue); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin:0 0 8px; color:var(--dim); font-weight:600; display:flex; align-items:center; gap:8px; }
+  .card h2 .tag { font-size:11px; color:var(--dim); font-weight:400; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { font-size:12px; padding:3px 10px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .chip.ok { color:var(--green); border-color:#1f6f52; } .chip.bad { color:var(--red); border-color:#7a2b2b; }
+  .chip.warn { color:var(--amber); border-color:#7a5c1d; }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px; }
+  input, select, textarea { width:100%; font:inherit; background:#0f1730; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; }
+  textarea { min-height:64px; resize:vertical; }
+  .btn { font:inherit; font-size:14px; padding:9px 14px; border-radius:9px; border:1px solid var(--line); background:#1d2a4f; color:var(--fg); cursor:pointer; }
+  .btn.primary { background:#1d4ed8; border-color:#2f6bff; }
+  .btn.green { background:#136b4a; border-color:#1f8f63; }
+  .btn.bad { background:#6b2020; border-color:#9a3030; }
+  .btn:disabled { opacity:.5; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > * { flex:0 0 auto; }
+  .row .grow { flex:1 1 160px; }
+  .list { display:flex; flex-direction:column; gap:8px; }
+  .item { background:#111a31; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .item.row { justify-content:space-between; }
+  .meta { color:var(--dim); font-size:12px; }
+  .empty { color:var(--dim); }
+  .alert { border-left:4px solid var(--line); }
+  .alert.P0 { border-left-color:var(--red); } .alert.P1 { border-left-color:var(--amber); } .alert.P2 { border-left-color:var(--blue); }
+  .toast { position:fixed; left:14px; right:14px; bottom:20px; padding:13px 16px; border-radius:12px; display:none; z-index:9; font-size:14px; }
+  .toast.show { display:block; } .toast.ok { background:#123a2a; border:1px solid #1f6f52; } .toast.bad { background:#3a1b1b; border:1px solid #7a2b2b; }
+  .token { word-break:break-all; background:#0d1428; border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:monospace; font-size:12px; }
+  .consent { display:flex; gap:9px; align-items:flex-start; font-size:12px; color:var(--dim); margin:12px 0; }
+  .consent input { width:18px; height:18px; margin-top:2px; }
+  a { color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1 id="tTitle">陪护 · 子女端</h1>
+  <div class="lang" id="langBox"><button data-lang="zh" class="on">中文</button><button data-lang="en">EN</button></div>
+</div>
+<div id="app"><div class="card"><div class="empty">…</div></div></div>
+<div id="toast" class="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var D = {
+    zh: {
+      title: '陪护 · 子女端',
+      joinTitle: '加入家人的陪护', joinNote: '让老人（或已加入的家属）把 6 位邀请码发给你。加入后你才会收到告警。',
+      code: '邀请码', name: '你的称呼（如：小张）', relation: '关系（女儿/儿子/其他）', phone: '手机号（告警时联系你）',
+      consent: '我同意为家人提供陪护协助，接收其健康与设备告警，并遵守最小必要原则查看资料。', join: '加入',
+      needCode: '请填写邀请码', needConsent: '请先勾选同意书', joined: '已加入',
+      family: '家庭', invite: '邀请码', share: '把邀请码发给其他家属',
+      profile: '健康档案', age: '年龄', conditions: '病史（逗号分隔）', allergies: '过敏（逗号分隔）',
+      contactName: '紧急联系人', contactPhone: '紧急联系人电话', address: '住址', meds: '用药（每行：药名|剂量|08:00,20:00）',
+      save: '保存档案', saved: '已保存', incomplete: '档案待补充（年龄+紧急联系人必填）', complete: '档案完整',
+      devices: '设备', addDevice: '接入设备', deviceId: '设备编号', deviceType: '类型', deviceName: '名称（可选）', register: '注册',
+      tokenNote: '令牌只显示一次，请立刻写入设备配置：', online: '在线', weak: '弱连接', offline: '离线',
+      alerts: '告警', ack: '接单', resolve: '闭环', noAlerts: '没有告警。', resolveNote: '处理结果（必填，客户/家属可见）',
+      tasks: '任务', addTask: '安排任务', taskTitle: '任务内容（如：早上吃降压药）', taskType: '类型', due: '时间', repeat: '重复',
+      createTask: '创建', noTasks: '没有待办任务。', done: '完成',
+      docs: '资料', upload: '上传病历/处方', noDocs: '还没有资料。', docOk: '已保存',
+      confirmDel: '删除这份资料？（本人也可随时删除，删除后不可恢复）', delOk: '已删除（文件将在巡检时彻底清除）',
+      grantQ: '给运营/协助员开"单份资料临时授权"几个小时？（0.5-72，回车默认 24）',
+      grantOk: '授权已创建。把下面的链接发给客服即可查看这份资料（可随时撤回）：\n', revoke: '撤回授权',
+      grantBtn: '授权', delBtn: '删除',
+      email: '邮箱（可选：告警同时发邮件，建议填写）',
+      plans: '陪护方案', freeSeed: '免费种子试点', seedLeft: '剩余名额', cycle: '周期', currency: '¥',
+      subscribe: '开通', unsubscribed: '当前家庭使用免费试点，未产生付费。',
+      myOrders: '我的订阅单', orderPending: '待付款', orderPaid: '已开通',
+      orderOk: '订单已创建（待付款）。付款到账后由核账开通；金额以订单为准。',
+      month: '按月', quarter: '按季', year: '按年',
+      sosNote: 'P0 告警 5 分钟内未接单会升级；请保持电话畅通。',
+      err: '操作失败：'
+    },
+    en: {
+      title: 'Care · Family',
+      joinTitle: 'Join your family care', joinNote: 'Ask the elder (or a joined family member) for the 6-character invite code. You will only receive alerts after joining.',
+      code: 'Invite code', name: 'Your name', relation: 'Relation (daughter/son/other)', phone: 'Phone (used for alerts)',
+      consent: 'I agree to assist my family member, receive their health and device alerts, and only view records on a need-to-know basis.', join: 'Join',
+      needCode: 'Please enter the invite code', needConsent: 'Please tick the consent box', joined: 'Joined',
+      family: 'Family', invite: 'Invite code', share: 'Send this code to other family members',
+      profile: 'Health profile', age: 'Age', conditions: 'Conditions (comma separated)', allergies: 'Allergies (comma separated)',
+      contactName: 'Emergency contact', contactPhone: 'Emergency phone', address: 'Address', meds: 'Medication (one per line: name|dose|08:00,20:00)',
+      save: 'Save profile', saved: 'Saved', incomplete: 'Profile incomplete (age + emergency contact required)', complete: 'Profile complete',
+      devices: 'Devices', addDevice: 'Add device', deviceId: 'Device ID', deviceType: 'Type', deviceName: 'Name (optional)', register: 'Register',
+      tokenNote: 'The token is shown once. Write it into the device now:', online: 'online', weak: 'weak', offline: 'offline',
+      alerts: 'Alerts', ack: 'Acknowledge', resolve: 'Resolve', noAlerts: 'No alerts.', resolveNote: 'Resolution (required, visible to the family)',
+      tasks: 'Tasks', addTask: 'New task', taskTitle: 'Task (e.g. take blood pressure medicine)', taskType: 'Type', due: 'Due', repeat: 'Repeat',
+      createTask: 'Create', noTasks: 'No pending tasks.', done: 'Done',
+      docs: 'Records', upload: 'Upload report', noDocs: 'No records yet.', docOk: 'Saved',
+      confirmDel: 'Delete this record? (You can also delete anytime; this cannot be undone)', delOk: 'Deleted (file will be purged in the next sweep)',
+      grantQ: 'Grant ops/assistant a temporary window for this single record, in hours? (0.5-72, default 24)',
+      grantOk: 'Grant created. Send this link to support to view this record (revocable):\n', revoke: 'Revoke',
+      grantBtn: 'Grant', delBtn: 'Delete',
+      email: 'Email (optional: alerts also go to email, recommended)',
+      plans: 'Care plans', freeSeed: 'Free pilot', seedLeft: 'slots left', cycle: 'Cycle', currency: '¥',
+      subscribe: 'Subscribe', unsubscribed: 'This family is on the free pilot; no payment yet.',
+      myOrders: 'My subscriptions', orderPending: 'Awaiting payment', orderPaid: 'Active',
+      orderOk: 'Order created (awaiting payment). It activates after payment is verified.',
+      month: 'Monthly', quarter: 'Quarterly', year: 'Yearly',
+      sosNote: 'Unacknowledged P0 alerts escalate after 5 minutes. Keep your phone reachable.',
+      err: 'Failed: '
+    }
+  };
+  var lang = 'zh';
+  try {
+    var s = localStorage.getItem('bd_lang');
+    if (s && D[s]) lang = s;
+    else if ((navigator.language || '').indexOf('zh') !== 0) lang = 'en';
+  } catch (e) {}
+  var T = function () { return D[lang] || D.zh; };
+  var $ = function (x) { return document.querySelector(x); };
+  function esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function toast(m, c) { var el = $('#toast'); el.textContent = m; el.className = 'toast show ' + (c || 'ok'); clearTimeout(toast._t); toast._t = setTimeout(function () { el.className = 'toast'; }, 4000); }
+  function api(p, o) { return fetch(p, Object.assign({ headers: { 'Content-Type': 'application/json' } }, o || {})).then(function (r) { return r.json(); }); }
+  function fmt(ts) { try { return new Date(Number(ts)).toLocaleString(); } catch (e) { return ''; } }
+  function splitList(s) { return String(s || '').split(/[,，、]/).map(function (x) { return x.trim(); }).filter(Boolean); }
+
+  function joinForm() {
+    var t = T();
+    $('#app').innerHTML = '<div class="card"><h2>' + esc(t.joinTitle) + '</h2><p class="meta">' + esc(t.joinNote) + '</p>'
+      + '<label>' + esc(t.code) + '</label><input id="jCode" maxlength="6" style="text-transform:uppercase" autocomplete="off">'
+      + '<label>' + esc(t.name) + '</label><input id="jName" maxlength="40">'
+      + '<label>' + esc(t.relation) + '</label><input id="jRel" maxlength="20">'
+      + '<label>' + esc(t.phone) + '</label><input id="jPhone" maxlength="30" inputmode="tel">'
+      + '<label>' + esc(t.email) + '</label><input id="jEmail" maxlength="120" inputmode="email">'
+      + '<label class="consent"><input id="jConsent" type="checkbox"><span>' + esc(t.consent) + '</span></label>'
+      + '<button class="btn primary" id="jBtn" style="width:100%">' + esc(t.join) + '</button></div>';
+    $('#jBtn').onclick = function () {
+      var b = this;
+      var code = ($('#jCode').value || '').trim().toUpperCase();
+      if (!code) return toast(t.needCode, 'bad');
+      if (!$('#jConsent').checked) return toast(t.needConsent, 'bad');
+      b.disabled = true;
+      api('/v1/care/family/join', { method: 'POST', body: JSON.stringify({ code: code, name: $('#jName').value, relation: $('#jRel').value, phone: $('#jPhone').value, email: $('#jEmail').value, consent: true }) })
+        .then(function (r) { b.disabled = false; if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); toast(t.joined, 'ok'); load(); })
+        .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+    };
+  }
+
+  function dashboard(fam) {
+    var t = T();
+    var idx = Number(fam._idx || 0);
+    var f = fam.families[Math.min(idx, fam.families.length - 1)];
+    var p = f.profile || {};
+    var profile = {
+      conditions: (p.conditions || []).join('，'),
+      allergies: (p.allergies || []).join('，'),
+      meds: (p.meds || []).map(function (m) { return m.name + '|' + (m.dose || '') + '|' + (m.times || []).join(','); }).join('\n'),
+      ec: (p.emergencyContacts || [])[0] || {}
+    };
+    var chips = '<span class="chip ' + (f.stats.guardians ? 'ok' : 'bad') + '">' + esc(t.family) + ' ' + f.stats.guardians + '</span>'
+      + '<span class="chip ' + (f.stats.devicesOnline ? 'ok' : 'bad') + '">' + esc(t.online) + ' ' + f.stats.devicesOnline + '</span>'
+      + (f.stats.devicesOffline ? '<span class="chip bad">' + esc(t.offline) + ' ' + f.stats.devicesOffline + '</span>' : '')
+      + '<span class="chip ' + (p.complete ? 'ok' : 'warn') + '">' + esc(p.complete ? t.complete : t.incomplete) + '</span>';
+
+    var alertHtml = (f.alerts || []).length ? '<div class="list">' + f.alerts.map(function (a) {
+      var btns = '';
+      if (a.status === 'open') btns = '<button class="btn primary" data-ack="' + esc(a.id) + '">' + esc(t.ack) + '</button>';
+      if (a.status === 'open' || a.status === 'acked') btns += ' <button class="btn green" data-res="' + esc(a.id) + '">' + esc(t.resolve) + '</button>';
+      return '<div class="item alert ' + esc(a.severity) + '"><div class="row"><b>' + esc(a.severity) + '</b><span>' + esc(a.message || '')
+        + '</span><span style="flex:1"></span><span class="meta">' + esc(fmt(a.at)) + ' · ' + esc(a.status) + '</span></div>'
+        + '<div class="row" style="margin-top:6px">' + btns + '</div></div>';
+    }).join('') + '</div>' : '<div class="empty">' + esc(t.noAlerts) + '</div>';
+
+    var devHtml = (f.devices || []).length ? '<div class="list">' + f.devices.map(function (d) {
+      return '<div class="item row"><div><b>' + esc(d.name || d.deviceId) + '</b><div class="meta">' + esc(d.type) + ' · '
+        + esc(d.deviceId) + (d.battery != null ? ' · 电量 ' + esc(d.battery) + '%' : '') + '</div></div>'
+        + '<span class="chip ' + (d.status === 'online' ? 'ok' : (d.status === 'weak' ? 'warn' : 'bad')) + '">' + esc(t[d.status] || d.status) + '</span></div>';
+    }).join('') + '</div>' : '<div class="empty">—</div>';
+
+    var taskHtml = (f.tasks || []).length ? '<div class="list">' + f.tasks.map(function (x) {
+      return '<div class="item row"><div><b>' + esc(x.title) + '</b><div class="meta">' + esc(fmt(x.dueAt)) + ' · ' + esc(x.type) + '</div></div>'
+        + '<button class="btn green" data-done="' + esc(x.id) + '">' + esc(t.done) + '</button></div>';
+    }).join('') + '</div>' : '<div class="empty">' + esc(t.noTasks) + '</div>';
+
+    $('#app').innerHTML =
+      '<div class="card"><h2>' + (fam.families.length > 1
+        ? '<select id="famSel" style="width:auto;margin-right:8px">' + fam.families.map(function (x, i) {
+            return '<option value="' + i + '"' + (i === idx ? ' selected' : '') + '>' + esc(x.family.elderName) + '</option>';
+          }).join('') + '</select>'
+        : '') + esc(f.family.elderName) + '<span style="flex:1"></span><span class="meta">' + esc(t.invite) + ': <b>' + esc(f.family.inviteCode) + '</b></span></h2>'
+      + '<div class="chips">' + chips + '</div><p class="meta" style="margin:8px 0 0">' + esc(t.share) + '</p></div>'
+
+      + '<div class="card"><h2>' + esc(t.alerts) + '<span class="tag">' + esc(t.sosNote) + '</span></h2>' + alertHtml + '</div>'
+
+      + '<div class="card"><h2>' + esc(t.profile) + '</h2>'
+      + '<label>' + esc(t.age) + '</label><input id="pAge" type="number" min="1" max="120" value="' + esc(p.age || '') + '">'
+      + '<label>' + esc(t.conditions) + '</label><input id="pCond" value="' + esc(profile.conditions) + '">'
+      + '<label>' + esc(t.allergies) + '</label><input id="pAllg" value="' + esc(profile.allergies) + '">'
+      + '<label>' + esc(t.meds) + '</label><textarea id="pMeds">' + esc(profile.meds) + '</textarea>'
+      + '<label>' + esc(t.contactName) + '</label><input id="pEcName" value="' + esc(profile.ec.name || '') + '">'
+      + '<label>' + esc(t.contactPhone) + '</label><input id="pEcPhone" value="' + esc(profile.ec.phone || '') + '" inputmode="tel">'
+      + '<label>' + esc(t.address) + '</label><input id="pAddr" value="' + esc(p.address || '') + '">'
+      + '<div class="row" style="margin-top:12px"><button class="btn primary" id="pSave">' + esc(t.save) + '</button></div></div>'
+
+      + '<div class="card"><h2>' + esc(t.devices) + '</h2>' + devHtml
+      + '<div class="row" style="margin-top:10px"><input class="grow" id="dId" placeholder="' + esc(t.deviceId) + '">'
+      + '<select id="dType" style="width:auto"><option value="app">app</option><option value="robot" selected>robot</option><option value="monitor">monitor</option><option value="wearable">wearable</option></select>'
+      + '<input class="grow" id="dName" placeholder="' + esc(t.deviceName) + '">'
+      + '<button class="btn primary" id="dAdd">' + esc(t.register) + '</button></div></div>'
+
+      + '<div class="card"><h2>' + esc(t.tasks) + '</h2>' + taskHtml
+      + '<div class="row" style="margin-top:10px"><input class="grow" id="tTitle" placeholder="' + esc(t.taskTitle) + '">'
+      + '<select id="tType" style="width:auto"><option value="med">med</option><option value="checkin">checkin</option><option value="visit">visit</option><option value="measure">measure</option></select>'
+      + '<input id="tDue" type="datetime-local" style="width:auto"><select id="tRep" style="width:auto"><option value="none">once</option><option value="daily">daily</option><option value="weekly">weekly</option></select>'
+      + '<button class="btn primary" id="tAdd">' + esc(t.createTask) + '</button></div></div>'
+
+      + '<div id="plansCard" class="card"><h2>' + esc(t.plans) + '</h2><div id="plansBox" class="list"><div class="empty">…</div></div><div id="ordersBox" class="list" style="margin-top:8px"></div></div>'
+
+      + '<div class="card"><h2>' + esc(t.docs) + '</h2><div id="docList" class="list"><div class="empty">…</div></div>'
+      + '<div style="margin-top:10px"><label class="btn primary" style="display:inline-block">' + esc(t.upload)
+      + '<input id="docFile" type="file" accept="image/*" style="display:none"></label></div></div>';
+
+    if (document.getElementById('famSel')) {
+      document.getElementById('famSel').onchange = function () {
+        fam._idx = Number(this.value); dashboard(fam);
+      };
+    }
+
+    api('/v1/care/plans').then(function (pl) {
+      var box = document.getElementById('plansBox'); if (!box) return;
+      var plans = (pl && pl.plans) || [];
+      var html = '';
+      if (pl && pl.freePlan && pl.seedOpen) {
+        html += '<div class="item row"><div><b>' + esc(pl.freePlan.name || t.freeSeed) + '</b>'
+          + '<div class="meta">' + esc(pl.freePlan.note || '') + (pl.seedLimit ? ' · ' + esc(t.seedLeft) + ' ' + Math.max(0, pl.seedLimit - pl.seedFamilies) + '/' + pl.seedLimit : '') + '</div></div>'
+          + '<span class="tag ok">¥0</span></div>';
+      }
+      html += plans.map(function (x) {
+        return '<div class="item row"><div><b>' + esc(x.name) + '</b>'
+          + '<div class="meta">' + esc(x.note || '') + '</div></div>'
+          + '<div class="row"><span class="tag">' + esc(t.currency) + esc(x.price) + '/' + esc(x.unit || '月') + '</span>'
+          + '<button class="btn primary" data-sub="' + esc(x.id) + '">' + esc(t.subscribe) + '</button></div></div>';
+      }).join('');
+      if (!html) html = '<div class="empty">' + esc(t.unsubscribed) + '</div>';
+      box.innerHTML = html;
+      Array.prototype.forEach.call(box.querySelectorAll('[data-sub]'), function (b) {
+        b.onclick = function () {
+          var plan = b.getAttribute('data-sub');
+          b.disabled = true;
+          api('/v1/care/order', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, plan: plan, cycle: 'month' }) })
+            .then(function (r) { b.disabled = false; if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); toast(t.orderOk, 'ok'); fillOrders(); })
+            .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+        };
+      });
+      fillOrders();
+      function fillOrders() {
+        var ob = document.getElementById('ordersBox'); if (!ob) return;
+        api('/v1/care/orders?familyId=' + encodeURIComponent(f.family.id)).then(function (r) {
+          if (!ob) return;
+          var rows = (r && r.orders) || [];
+          ob.innerHTML = rows.length ? rows.map(function (o) {
+            return '<div class="item row"><span>' + esc(o.plan) + ' · ' + esc(o.cycle) + '</span><span style="flex:1"></span>'
+              + '<span class="meta">' + esc(t.currency) + esc(o.amount) + '</span>'
+              + (o.status === 'fulfilled' ? '<span class="tag ok">' + esc(t.orderPaid) + '</span>' : '<span class="tag warn">' + esc(t.orderPending) + '</span>') + '</div>';
+          }).join('') : '';
+        });
+      }
+    });
+
+    $('#pSave').onclick = function () {
+      var b = this; b.disabled = true;
+      var meds = String($('#pMeds').value || '').split('\n').map(function (line) {
+        var a = line.split('|');
+        return { name: (a[0] || '').trim(), dose: (a[1] || '').trim(), times: (a[2] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean) };
+      }).filter(function (m) { return m.name; });
+      var ec = $('#pEcPhone').value ? [{ name: $('#pEcName').value, phone: $('#pEcPhone').value, relation: '' }] : [];
+      api('/v1/care/profile', { method: 'POST', body: JSON.stringify({
+        familyId: f.family.id, age: Number($('#pAge').value) || null,
+        conditions: splitList($('#pCond').value), allergies: splitList($('#pAllg').value),
+        meds: meds, emergencyContacts: ec, address: $('#pAddr').value
+      }) }).then(function (r) { b.disabled = false; if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); toast(t.saved, 'ok'); load(); })
+        .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+    };
+    $('#dAdd').onclick = function () {
+      var b = this; b.disabled = true;
+      api('/v1/care/device/register', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, deviceId: $('#dId').value, type: $('#dType').value, name: $('#dName').value }) })
+        .then(function (r) {
+          b.disabled = false;
+          if (!r.ok) return toast(t.err + (r.error || ''), 'bad');
+          if (r.token) alert(t.tokenNote + '\n\n' + r.token);
+          load();
+        }).catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+    };
+    $('#tAdd').onclick = function () {
+      var b = this; b.disabled = true;
+      var due = $('#tDue').value ? new Date($('#tDue').value).getTime() : Date.now() + 3600000;
+      api('/v1/care/task', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, title: $('#tTitle').value, type: $('#tType').value, dueAt: due, repeat: $('#tRep').value }) })
+        .then(function (r) { b.disabled = false; if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); load(); })
+        .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-done]'), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        api('/v1/care/task/done', { method: 'POST', body: JSON.stringify({ id: b.getAttribute('data-done') }) })
+          .then(function (r) { if (!r.ok) { b.disabled = false; return toast(t.err + (r.error || ''), 'bad'); } load(); })
+          .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ack]'), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        api('/v1/care/alert/ack', { method: 'POST', body: JSON.stringify({ id: b.getAttribute('data-ack') }) })
+          .then(function (r) { if (!r.ok) { b.disabled = false; return toast(t.err + (r.error || ''), 'bad'); } load(); })
+          .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-res]'), function (b) {
+      b.onclick = function () {
+        var note = prompt(T().resolveNote, '');
+        if (!note) return;
+        b.disabled = true;
+        api('/v1/care/alert/resolve', { method: 'POST', body: JSON.stringify({ id: b.getAttribute('data-res'), note: note }) })
+          .then(function (r) { if (!r.ok) { b.disabled = false; return toast(t.err + (r.error || ''), 'bad'); } load(); })
+          .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+      };
+    });
+    $('#docFile').onchange = function () {
+      var file = this.files && this.files[0];
+      if (!file) return;
+      if (file.size > 1000 * 1000) return toast('>1MB', 'bad');
+      var fr = new FileReader();
+      fr.onload = function () {
+        var title = prompt(t.upload, file.name) || file.name;
+        api('/v1/care/doc', { method: 'POST', body: JSON.stringify({ familyId: f.family.id, title: title, kind: 'report', dataUrl: fr.result }) })
+          .then(function (r) { if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); toast(t.docOk, 'ok'); load(); })
+          .catch(function (e) { toast(String(e), 'bad'); });
+      };
+      fr.readAsDataURL(file);
+    };
+    api('/v1/care/docs?familyId=' + encodeURIComponent(f.family.id)).then(function (r) {
+      var box = $('#docList'); if (!box) return;
+      var docs = (r && r.docs) || [];
+      box.innerHTML = docs.length ? docs.map(function (d) {
+        return '<div class="item row"><a style="color:inherit;text-decoration:none" href="/v1/care/doc/file?id=' + encodeURIComponent(d.id) + '" target="_blank">'
+          + esc(d.title) + '<div class="meta">' + esc(fmt(d.at)) + '</div></a><span style="flex:1"></span>'
+          + '<button class="btn" data-grant="' + esc(d.id) + '">' + esc(t.grantBtn) + '</button> '
+          + '<button class="btn bad" data-del="' + esc(d.id) + '">' + esc(t.delBtn) + '</button></div>';
+      }).join('') : '<div class="empty">' + esc(t.noDocs) + '</div>';
+      Array.prototype.forEach.call(box.querySelectorAll('[data-del]'), function (b) {
+        b.onclick = function () {
+          if (!confirm(t.confirmDel)) return;
+          b.disabled = true;
+          api('/v1/care/doc/delete', { method: 'POST', body: JSON.stringify({ id: b.getAttribute('data-del') }) })
+            .then(function (r) { b.disabled = false; if (!r.ok) return toast(t.err + (r.error || ''), 'bad'); toast(t.delOk, 'ok'); load(); })
+            .catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+        };
+      });
+      Array.prototype.forEach.call(box.querySelectorAll('[data-grant]'), function (b) {
+        b.onclick = function () {
+          var h = Number(prompt(t.grantQ, '24') || 24);
+          if (!h) return;
+          b.disabled = true;
+          api('/v1/care/grant', { method: 'POST', body: JSON.stringify({ docId: b.getAttribute('data-grant'), hours: h }) })
+            .then(function (r) {
+              b.disabled = false;
+              if (!r.ok) return toast(t.err + (r.error || ''), 'bad');
+              if (r.grant && r.grant.id) {
+                var url = location.origin + '/v1/care/doc/file?id=' + encodeURIComponent(r.grant.docId) + '&grantId=' + encodeURIComponent(r.grant.id);
+                alert(t.grantOk + url);
+              }
+            }).catch(function (e) { b.disabled = false; toast(String(e), 'bad'); });
+        };
+      });
+    });
+  }
+
+  function load() {
+    api('/v1/care/family').then(function (r) {
+      if (!r.ok) { $('#app').innerHTML = '<div class="card"><div class="empty">' + esc(r.error || '') + '</div></div>'; return; }
+      if (!r.families || !r.families.length) return joinForm();
+      dashboard(r);
+    }).catch(function (e) { $('#app').innerHTML = '<div class="card"><div class="empty">' + esc(String(e)) + '</div></div>'; });
+  }
+
+  function apply() {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+    $('#tTitle').textContent = T().title;
+    Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+      b.className = b.getAttribute('data-lang') === lang ? 'on' : '';
+    });
+    load();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#langBox button'), function (b) {
+    b.onclick = function () { var l = b.getAttribute('data-lang'); if (!D[l]) return; lang = l; try { localStorage.setItem('bd_lang', l); } catch (e) {} apply(); };
+  });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/care/sw.js').catch(function () {});
+  apply();
+})();
+</script>
+</body>
+</html>

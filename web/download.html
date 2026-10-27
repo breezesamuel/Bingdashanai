@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>下载 · 丙大山AI Agent（Windows / macOS / Linux / Android / iOS / 鸿蒙）</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png">
+<style>
+:root{--bg:#0b0f14;--fg:#e8edf2;--muted:#7a8a9a;--accent:#10b981;--accent-dim:#0d8a63;--card:#111820;--border:#1e2a38;--warn:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;min-height:100vh}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:920px;margin:0 auto;padding:40px 20px}
+header{text-align:center;margin-bottom:36px}
+h1{font-size:clamp(26px,5vw,40px);font-weight:700;line-height:1.2;margin-bottom:10px}
+.subtitle{color:var(--muted);font-size:17px;max-width:680px;margin:0 auto}
+.badge{display:inline-block;background:rgba(16,185,129,.15);color:var(--accent);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:14px}
+.primary{background:var(--card);border:1px solid var(--accent);border-radius:16px;padding:24px;margin:28px 0;display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.primary .t{font-size:19px;font-weight:700}
+.primary .d{color:var(--muted);font-size:14px;margin-top:4px}
+.btn{display:inline-block;padding:14px 26px;border-radius:10px;background:var(--accent);color:#051d13;font-weight:700;font-size:16px;border:none;cursor:pointer}
+.btn:hover{background:var(--accent-dim);text-decoration:none}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--fg);font-weight:600}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px}
+.card h3{font-size:17px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card .note{color:var(--muted);font-size:13px;margin-bottom:12px}
+.art{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:#0a1218}
+.art .name{font-size:14px;font-weight:600}
+.art .meta{color:var(--muted);font-size:12px;margin-top:4px;word-break:break-all}
+.art .pending{color:var(--warn);font-size:12px;margin-top:6px}
+.art .dl{display:block;margin-top:8px;font-weight:700;font-size:14px}
+.mini{margin-top:8px;padding:7px 12px;font-size:12.5px;border-radius:8px}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
+.pill.ok{background:rgba(16,185,129,.15);color:var(--accent)}
+.pill.no{background:rgba(122,138,154,.15);color:var(--muted)}
+.pill.todo{background:rgba(245,158,11,.15);color:var(--warn)}
+ol.steps{counter-reset:s;list-style:none;margin-top:6px}
+ol.steps li{counter-increment:s;position:relative;padding:9px 0 9px 42px;color:var(--muted);font-size:14px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:28px;height:28px;border-radius:50%;background:rgba(16,185,129,.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+ol.steps li b{color:var(--fg)}
+code{background:#0a1218;border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
+.section-title{margin:40px 0 4px;font-size:22px;font-weight:700}
+.section-sub{color:var(--muted);font-size:14px;margin-bottom:6px}
+.warnbox{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:12px;padding:16px;margin:20px 0;font-size:14px;color:#fcd34d}
+.foot{color:var(--muted);font-size:13px;text-align:center;padding:28px 0;border-top:1px solid var(--border);margin-top:36px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translate(-50%,120px);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 20px;z-index:99;transition:.25s;max-width:90vw}
+.toast.show{transform:translate(-50%,0)}
+.toast.ok{border-color:var(--accent);color:#6ee7b7}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <span class="badge">Windows / macOS / Linux / Android / iOS / 鸿蒙</span>
+    <h1>下载丙大山AI Agent</h1>
+    <p class="subtitle">桌面版下载安装包；手机用 PWA（免应用商店，浏览器里“添加到主屏幕”即可当 App 用）。装好后在 App 内订阅，或粘贴运营方签发的授权码激活。</p>
+  </header>
+
+  <div class="primary" id="primary">
+    <div>
+      <div class="t" id="prTitle">正在识别你的设备…</div>
+      <div class="d" id="prDesc">页面会按你的系统推荐合适的版本。</div>
+    </div>
+    <div id="prAction"></div>
+  </div>
+
+  <div hidden id="loadErr" class="warnbox">
+    没能读到发布清单 <code>/releases.json</code>。请在服务器上执行 <code>npm run release:make</code> 生成后刷新本页。
+  </div>
+
+  <h2 class="section-title">各平台</h2>
+  <p class="section-sub" id="verLine">版本 —</p>
+  <div class="grid" id="grid"></div>
+
+  <h2 class="section-title">手机上装（免应用商店）</h2>
+  <p class="section-sub">用手机浏览器打开本页面，按下面步骤把网页装成 App。这是 iOS / 鸿蒙目前唯一不需要应用商店的安装方式。</p>
+  <div class="grid">
+    <div class="card">
+      <h3>iPhone / iPad（iOS）</h3>
+      <div class="note">iOS 原生包需 Mac + Xcode + Apple 开发者账号构建，现阶段请用 PWA。</div>
+      <ol class="steps">
+        <li>用 <b>Safari</b> 打开本站（不要用微信内置浏览器）。</li>
+        <li>点底部 <b>分享</b> → <b>添加到主屏幕</b>。</li>
+        <li>主屏出现图标，点开即为全屏 App。</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Android</h3>
+      <div class="note" id="androidNote">有 APK 时优先用 APK；没有也能用 PWA 安装。</div>
+      <ol class="steps">
+        <li>用 <b>Chrome / 华为浏览器</b> 打开本站。</li>
+        <li>菜单 → <b>安装应用 / 添加到主屏幕</b>。</li>
+        <li>之后从桌面图标启动。</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>鸿蒙（HarmonyOS）</h3>
+      <div class="note">原生 HAP 需 DevEco Studio 构建，现阶段请用 PWA。</div>
+      <ol class="steps">
+        <li>用 <b>华为浏览器</b> 打开本站。</li>
+        <li>菜单 → <b>添加到桌面</b>。</li>
+        <li>从桌面图标启动。</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2 class="section-title">安装之后怎么开始用</h2>
+  <ol class="steps">
+    <li><b>打开 App</b>：首次运行会在本机起服务，界面在 <code>http://127.0.0.1:3721</code>（仅本机可访问）。</li>
+    <li><b>先用免费额度</b>：未订阅也有免费次数，用出价值再决定付费。</li>
+    <li><b>选套餐并付款</b>：在 <a href="/landing.html">套餐页</a> 选择；运营方确认到账后开通（不承诺“自助秒开”）。</li>
+    <li><b>激活</b>：下载版在 App 的 <a href="/activate.html">激活页</a> 粘贴授权码，本机全部付费功能开通。</li>
+  </ol>
+
+  <div class="warnbox">
+    <b>关于安装时的安全提示（如实说明）：</b>当前安装包<b>没有代码签名证书</b>。Windows 可能弹 SmartScreen（更多信息 → 仍要运行）；macOS 首次打开需右键 → 打开。这不是病毒，是本项目尚未购买签名证书。介意的话请先核对下方 SHA256。
+  </div>
+
+  <h2 class="section-title">核对下载文件（可选）</h2>
+  <p class="section-sub">下载后本地算一次哈希，与页面上的值比对，可确认文件没被替换。</p>
+  <div class="card">
+    <div class="note">Windows（PowerShell）</div>
+    <p><code>Get-FileHash .\BingDashanAI-Setup.exe -Algorithm SHA256</code></p>
+    <div class="note" style="margin-top:14px">macOS / Linux</div>
+    <p><code>shasum -a 256 BingDashanAI-*.dmg</code></p>
+  </div>
+
+  <div class="foot">
+    丙大山AI · <a href="/landing.html">套餐与价格</a> · <a href="/activate.html">激活授权</a> · <a href="/">打开网页版</a>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="page-dicts.js?v=20261016c"></script>
+<script src="page-i18n.js?v=20261016c"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+function toast(t) { const el = $('toast'); el.textContent = t; el.className = 'toast show ok'; clearTimeout(toast._t); toast._t = setTimeout(() => el.className = 'toast', 2600); }
+function mb(n) { return (n / 1048576).toFixed(1) + ' MB'; }
+
+// 只负责"猜"推荐的平台与架构，猜不到就回退到"任意一个已发布产物"。
+function detectPlat() {
+  const ua = navigator.userAgent || '';
+  const p = (navigator.platform || '') + ' ' + ua;
+  if (/HarmonyOS|OpenHarmony/i.test(ua)) return 'harmonyos';
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Mac/i.test(ua) && /Mobile/i.test(ua)) return 'ios';
+  if (/Win/i.test(p)) return 'windows';
+  if (/Mac/i.test(p)) return 'macos';
+  if (/Linux|X11/i.test(p)) return 'linux';
+  return null;
+}
+
+let MAN = null;
+const artsOf = (plat) => (MAN.artifacts || []).filter(a => a.platform === plat);
+const unavail = (plat) => (MAN.unavailable || []).find(u => u.platform === plat);
+const anyPublished = () => (MAN.artifacts || []).filter(a => a.published && a.url);
+
+function artBlock(a) {
+  const wrap = document.createElement('div');
+  wrap.className = 'art';
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = a.label;
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = a.file + ' · ' + mb(a.size) + ' · sha256 ' + a.sha256.slice(0, 16) + '…';
+  wrap.append(name, meta);
+  if (a.published && a.url) {
+    const link = document.createElement('a');
+    link.className = 'dl';
+    link.href = a.url;
+    link.setAttribute('download', '');
+    link.textContent = PGT('↓ 下载 {file}', { file: a.file });
+    wrap.append(link);
+  } else {
+    const p = document.createElement('div');
+    p.className = 'pending';
+    p.textContent = '已构建、清单未开放下载：把产物放入 web/downloads/ 后由运营方执行 node scripts/make-releases.js（sha256 与大小随清单自动生成）。';
+    wrap.append(p);
+  }
+  const btn = document.createElement('button');
+  btn.className = 'btn ghost mini';
+  btn.textContent = '复制完整 SHA256';
+  btn.onclick = async () => { try { await navigator.clipboard.writeText(a.sha256); toast('SHA256 已复制'); } catch (e) { toast(a.sha256); } };
+  wrap.append(btn);
+  return wrap;
+}
+
+function platCard(plat, title, extraHtml) {
+  const c = document.createElement('div');
+  c.className = 'card';
+  const arts = artsOf(plat);
+  const h = document.createElement('h3');
+  h.textContent = title;
+  const pill = document.createElement('span');
+  if (arts.some(a => a.published)) { pill.className = 'pill ok'; pill.textContent = '可下载'; }
+  else if (arts.length) { pill.className = 'pill todo'; pill.textContent = '已构建·未发布'; }
+  else { pill.className = 'pill no'; pill.textContent = '尚未产出'; }
+  h.append(pill);
+  c.append(h);
+  if (extraHtml) { const d = document.createElement('div'); d.className = 'note'; d.innerHTML = extraHtml; c.append(d); }
+  if (arts.length) arts.forEach(a => c.append(artBlock(a)));
+  else {
+    const u = unavail(plat);
+    const d = document.createElement('div');
+    d.className = 'note';
+    d.textContent = (u && u.reason) || '该平台尚未产出构建产物。';
+    c.append(d);
+  }
+  return c;
+}
+
+function renderPrimary(plat) {
+  const cands = artsOf(plat).filter(a => a.published && a.url);
+  const pick = cands[0] || null;
+  if (pick) {
+    $('prTitle').textContent = PGT('推荐：{x}', { x: PGT(pick.label) });
+    $('prDesc').textContent = pick.file + ' · ' + mb(pick.size) + PGT('（SHA256 见下方平台卡片）');
+    const a = document.createElement('a');
+    a.className = 'btn';
+    a.href = pick.url;
+    a.setAttribute('download', '');
+    a.textContent = '↓ 立即下载';
+    $('prAction').innerHTML = '';
+    $('prAction').append(a);
+    return;
+  }
+  const any = anyPublished()[0];
+  if (any) {
+    $('prTitle').textContent = PGT('你的平台还没放出安装包，可先下载：{x}', { x: any.label });
+    $('prDesc').textContent = any.file + ' · ' + mb(any.size);
+    const a = document.createElement('a');
+    a.className = 'btn';
+    a.href = any.url;
+    a.setAttribute('download', '');
+    a.textContent = PGT('↓ 下载 {x}', { x: any.platform });
+    $('prAction').innerHTML = '';
+    $('prAction').append(a);
+    return;
+  }
+  // 一个都没发布：不要给假按钮，改为引导 PWA
+  const mobile = (plat === 'ios' || plat === 'android' || plat === 'harmonyos');
+  $('prTitle').textContent = mobile ? '用 PWA 安装（免应用商店，最省事）' : '安装包正在准备中';
+  $('prDesc').textContent = mobile
+    ? '按下方“手机上装”的步骤，把本页添加到主屏幕即可当 App 使用。'
+    : '桌面安装包尚未发布。你可以先用网页版，或稍后再来。';
+  const a = document.createElement('a');
+  a.className = 'btn';
+  a.href = '/';
+  a.textContent = '打开网页版';
+  $('prAction').innerHTML = '';
+  $('prAction').append(a);
+}
+
+(async () => {
+  try {
+    const r = await fetch('/releases.json', { cache: 'no-store' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    MAN = await r.json();
+  } catch (e) {
+    $('loadErr').hidden = false;
+    $('prTitle').textContent = '发布清单不可用';
+    $('prDesc').textContent = '请联系运营方生成 /releases.json。';
+    return;
+  }
+  const gen = String(MAN.generatedAt || '').slice(0, 19).replace('T', ' ');
+  $('verLine').textContent = PGT('版本 {v}（{t}）· 清单生成于 {g}', { v: (MAN.version || '—'), t: (MAN.tag || ''), g: gen });
+
+  // 每个平台只渲染一次。artsOf() 为空时，卡片会照实显示 unavailable 里的原因，
+  // 绝不给出\"看起来能点但会 404\"的假按钮。
+  const apk = artsOf('android')[0];
+  const grid = $('grid');
+  grid.append(platCard('windows', 'Windows'));
+  grid.append(platCard('macos', 'macOS'));
+  grid.append(platCard('linux', 'Linux'));
+  grid.append(platCard('android', 'Android', apk ? PGT('推荐：{x}', { x: PGT(apk.file) }) : '当前没有 APK，可用下方 PWA 方式安装。'));
+  grid.append(platCard('harmonyos', '鸿蒙 HarmonyOS', '原生 HAP 需 DevEco Studio 构建，现阶段请用 PWA。'));
+  grid.append(platCard('ios', 'iPhone / iPad（iOS）', '原生包需 Mac + Xcode + Apple 开发者账号，现阶段请用 PWA。'));
+
+  const andNote = $('androidNote');
+  if (andNote) andNote.textContent = apk ? PGT('推荐：{x}', { x: PGT(apk.file) }) : '当前没有 APK，可用 PWA 安装（下面步骤）。';
+
+  renderPrimary(detectPlat());
+})();
+</script>
+</body>
+</html>

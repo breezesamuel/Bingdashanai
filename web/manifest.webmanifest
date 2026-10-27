@@ -1,0 +1,30 @@
+{
+  "name": "丙大山AI Agent · 经营驾驶舱",
+  "short_name": "丙大山AI",
+  "description": "一个人的 AI 公司：智能对话、决策中心、组织大脑、项目管理、审计日志与自主运营，一套跨平台可在浏览器安装的应用。",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#f4f4f0",
+  "theme_color": "#107a5a",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/icons/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "/icons/favicon-64.png", "sizes": "64x64", "type": "image/png" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "智能对话", "short_name": "对话", "url": "/?tab=chat" },
+    { "name": "决策中心", "short_name": "决策", "url": "/?tab=decision" },
+    { "name": "组织大脑", "short_name": "组织", "url": "/?tab=org" },
+    { "name": "收银台", "short_name": "收银台", "url": "/?tab=cashier" }
+  ]
+}

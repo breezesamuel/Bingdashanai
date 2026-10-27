@@ -1,0 +1,43 @@
+{
+  "product": "BingDashanAI",
+  "version": "2026.0.3",
+  "tag": "v2026.0.3",
+  "generatedAt": "2026-10-26T06:30:52.164Z",
+  "note": "本清单由 scripts/make-release.js 依据**真实存在的文件**生成；size/sha256 均为实测。published=false 表示已构建但未配置下载地址。",
+  "artifacts": [
+    {
+      "platform": "windows",
+      "arch": "x64",
+      "kind": "installer",
+      "label": "Windows 安装包（NSIS，可选安装目录）",
+      "file": "BingDashanAI-2026.0.3-win-x64.exe",
+      "size": 88665389,
+      "sha256": "536676111673763690798f8baea4a33ac6c3ef8c23f95bb92df8e0f36b56286e",
+      "built": "2026-10-26T06:26:43.414Z",
+      "url": "/downloads/BingDashanAI-2026.0.3-win-x64.exe",
+      "published": true
+    }
+  ],
+  "unavailable": [
+    {
+      "platform": "macos",
+      "reason": "macOS 安装包必须在 Mac 上构建（需 Apple 账号做签名/公证）；见 .github/workflows/build-desktop.yml 的 macos 任务"
+    },
+    {
+      "platform": "linux",
+      "reason": "Linux 产物在 Linux 上构建（AppImage/deb）"
+    },
+    {
+      "platform": "android",
+      "reason": "Android APK 需 Android SDK 构建；没有 APK 时可先用 PWA 免商店安装（见下载页）"
+    },
+    {
+      "platform": "ios",
+      "reason": "iOS 原生包需 Mac + Xcode + Apple 开发者账号；现阶段请用 PWA（Safari → 添加到主屏幕）"
+    },
+    {
+      "platform": "harmonyos",
+      "reason": "鸿蒙原生 HAP 需 DevEco Studio 构建；现阶段请用 PWA"
+    }
+  ]
+}

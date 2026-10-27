@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>丙大山AI · Agent 驾驶舱 · 订阅开通</title>
+<style>
+:root{--bg:#0b0f14;--fg:#e8edf2;--muted:#7a8a9a;--accent:#10b981;--accent-dim:#0d8a63;--card:#111820;--border:#1e2a38;--warn:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;min-height:100vh;display:flex;flex-direction:column}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:800px;margin:0 auto;padding:40px 20px;width:100%}
+header{text-align:center;margin-bottom:48px}
+.badge{display:inline-block;background:rgba(16,185,129,.15);color:var(--accent);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;margin-bottom:16px}
+h1{font-size:clamp(28px,5vw,44px);line-height:1.2;margin-bottom:12px;font-weight:700}
+.subtitle{color:var(--muted);font-size:18px;max-width:600px;margin:0 auto}
+.pricing{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin:48px 0}
+.plan{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;position:relative;transition:border-color .2s,transform .2s}
+.plan:hover{border-color:var(--accent);transform:translateY(-2px)}
+.plan.trial{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.plan-tag{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;display:inline-block;margin-bottom:12px}
+.plan.trial .plan-tag{background:rgba(16,185,129,.2);color:var(--accent)}
+.plan.standard .plan-tag{background:rgba(245,158,11,.15);color:var(--warn)}
+.plan-name{font-size:20px;font-weight:700;margin-bottom:8px}
+.plan-price{font-size:40px;font-weight:800;color:var(--fg);margin-bottom:4px}
+.plan-price span{font-size:16px;font-weight:400;color:var(--muted)}
+.plan-desc{color:var(--muted);font-size:14px;margin-bottom:20px;min-height:40px}
+.plan-btn{width:100%;padding:14px 20px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s;border:none}
+.plan.trial .plan-btn{background:var(--accent);color:#051d13}
+.plan.trial .plan-btn:hover{background:#0d8a63}
+.plan.standard .plan-btn{background:var(--card);color:var(--fg);border:1px solid var(--border)}
+.plan.standard .plan-btn:hover{border-color:var(--accent);background:#0e1820}
+.features{list-style:none;margin:24px 0 0;padding:0}
+.features li{padding:8px 0 8px 24px;position:relative;color:var(--muted);font-size:14px}
+.features li::before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:bold}
+.how-it-works{margin:60px 0}
+.step{display:flex;gap:16px;margin-bottom:24px}
+.step-num{width:36px;height:36px;border-radius:50%;background:rgba(16,185,129,.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.step-txt h4{margin-bottom:4px}
+.step-txt p{color:var(--muted);font-size:14px}
+footer{text-align:center;color:var(--muted);font-size:13px;padding:32px 0;border-top:1px solid var(--border);margin-top:40px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;visibility:hidden;transition:.2s}
+.modal.open{opacity:1;visibility:visible}
+.modal-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;max-width:480px;width:90%;max-height:90vh;overflow:auto}
+.modal h3{margin-bottom:16px}
+.order-info{background:#0a1218;border:1px solid var(--border);border-radius:10px;padding:16px;margin:16px 0;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-all}
+.qr-placeholder{min-width:200px;min-height:180px;max-width:300px;padding:12px;border:1px dashed var(--border);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);margin:16px auto;background:#0a1218}
+.btn-close{width:100%;margin-top:16px;padding:12px;border-radius:8px;background:transparent;color:var(--muted);border:1px solid var(--border);cursor:pointer}
+.btn-close:hover{border-color:var(--accent);color:var(--accent)}
+.loading{display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 20px;z-index:2000;transform:translateY(100px);opacity:0;transition:.3s}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.error{border-color:#ef4444;color:#fca5a5}
+.toast.success{border-color:var(--accent);color:#6ee7b7}
+.sync-msg{font-size:14px;color:var(--muted);margin-top:8px;min-height:20px}
+.sync-msg.error{color:#fca5a5}
+.sync-msg.ok{color:#6ee7b7}
+.synccard{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;margin:48px 0}
+.synccard h2{font-size:20px;margin-bottom:8px}
+.synccard .muted{color:var(--muted);font-size:14px;margin-bottom:20px}
+.sync-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.synccard input{flex:1;min-width:200px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:15px}
+.synccard input:focus{outline:none;border-color:var(--accent)}
+.sync-btn{padding:12px 20px;border-radius:10px;border:none;background:var(--accent);color:#051d13;font-weight:600;cursor:pointer;font-size:15px}
+.sync-btn:hover{background:#0d8a63}
+.sync-btn:disabled{opacity:.5;cursor:not-allowed}
+.sync-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--fg)}
+.sync-btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+#boundRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#boundRow .pill{background:rgba(16,185,129,.15);color:var(--accent);padding:6px 12px;border-radius:999px;font-size:14px;font-weight:600}
+.sec{margin:56px 0}
+.sec h2{text-align:center;font-size:22px;margin-bottom:8px}
+.sec .lead{text-align:center;color:var(--muted);margin-bottom:24px;font-size:14px}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.shot{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#0a1218;margin:0}
+.shot img{width:100%;display:block}
+.shot figcaption{padding:10px 14px;font-size:13px;color:var(--muted)}
+.usecases{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.uc{border:1px solid var(--border);border-radius:14px;padding:20px;background:var(--card)}
+.uc h4{font-size:16px;margin-bottom:8px}
+.uc p{color:var(--muted);font-size:14px;line-height:1.6}
+.reviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.review{border:1px solid var(--border);border-radius:14px;padding:18px;background:var(--card)}
+.review .who{font-weight:700;margin-bottom:4px}
+.review .role{color:var(--muted);font-size:13px;margin-bottom:8px}
+.review .stars{color:var(--warn);letter-spacing:2px;margin-bottom:8px}
+.review p{font-size:14px;line-height:1.6;color:var(--fg);margin:0}
+.reviews-empty{border:1px dashed var(--border);border-radius:14px;padding:22px;color:var(--muted);text-align:center;font-size:14px;line-height:1.6}
+.form-card{margin-top:20px;border:1px solid var(--border);border-radius:14px;padding:20px;background:var(--card)}
+.form-card input,.form-card textarea,.form-card select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:14px;margin-bottom:10px;font-family:inherit;box-sizing:border-box}
+.form-card textarea{min-height:84px;resize:vertical}
+.form-card .row{display:flex;gap:10px}
+.form-card .row>*{flex:1}
+.consent-row{display:flex;gap:8px;align-items:flex-start;color:var(--muted);font-size:13px;margin:2px 0 12px;line-height:1.5}
+.consent-row input{width:auto!important;margin:4px 0 0!important;flex:0 0 auto}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <span class="badge">Agent 驾驶舱 · 全功能订阅</span>
+  <h1>把 AI 变成你的 <b>可复用生产力</b></h1>
+  <p class="subtitle">决策框架 · 组织大脑 · 内容铸造 · 获客闭环 —— 可验收的交付，不是"满意"这种感觉</p>
+</header>
+
+<section id="gateCard" class="synccard" style="margin-top:0;margin-bottom:32px">
+  <h2>下单之前，先答四个问题</h2>
+  <p class="muted">这一屏不是营销，是筛子。答不上来的，明确告诉你「交付不了」——别花这个钱。<br>
+  这四条能把 90% 的事后纠纷消掉：范围说不清、达标靠「感觉」、没有截止日期、说不清第一笔钱从哪来。</p>
+  <div style="display:grid;gap:14px;margin-top:20px">
+    <label style="display:block"><b>1. 你要的第一个能收到钱的东西，是什么？</b>
+      <span class="muted" style="display:block;font-size:13px">例：一个行业的获客落地页 / 10 封首发邮件。说不出具体物件 → 交付不了。</span>
+      <input id="gq1" placeholder="一个能收钱的最小单位" style="width:100%;margin-top:6px;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:15px;font-family:inherit"></label>
+    <label style="display:block"><b>2. 第一笔钱从哪来？</b>
+      <span class="muted" style="display:block;font-size:13px">例：第一个客户付的样品费。答不出 → 交付不了，因为无法验收。</span>
+      <input id="gq2" placeholder="第一笔钱的来源" style="width:100%;margin-top:6px;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:15px;font-family:inherit"></label>
+    <label style="display:block"><b>3. 做到什么程度算成？（要可数）</b>
+      <span class="muted" style="display:block;font-size:13px">例：1 个可提交的页面 + 10 封有依据的邮件。「让我满意」不算——没有验收标准。</span>
+      <input id="gq3" placeholder="可数的验收标准" style="width:100%;margin-top:6px;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:15px;font-family:inherit"></label>
+    <label style="display:block"><b>4. 什么时候要？</b>
+      <span class="muted" style="display:block;font-size:13px">给一个具体日期。「现在就要」→ 交付不了，仓促交付必然返工。</span>
+      <input id="gq4" placeholder="YYYY-MM-DD" style="width:100%;margin-top:6px;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:15px;font-family:inherit"></label>
+  </div>
+  <div class="row" style="gap:10px;margin-top:18px;flex-wrap:wrap">
+    <button class="plan-btn" style="width:auto;padding:12px 22px;background:var(--accent);color:#051d13" onclick="runGate()">先看能不能接</button>
+    <span id="gateMsg" class="sync-msg" style="flex:1;min-width:240px"></span>
+  </div>
+  <p class="muted" style="margin-top:14px;font-size:13px">通过之后才会出现「订阅」入口。被挡住时，页面会说清缺哪一条、以及怎么改才能过。</p>
+</section>
+
+<script>
+// 与 core/delivery-spec.js 的 HARD_STOPS 同源（前端副本：落地页是静态页，无后端可用时也要能跑）
+function runGate() {
+  var v = function (id) { return String((document.getElementById(id) || {}).value || '').trim(); };
+  var a = { firstMoney: v('gq2'), scope: v('gq1'), success: v('gq3'), deadline: v('gq4'),
+            goal: v('gq1') };
+  var box = document.getElementById('gateMsg'), bad = [];
+  if (!a.scope) bad.push('① 第一个能收钱的东西——必须是个具体物件');
+  if (!/的钱|收入|客户|订单|货款|利润|回款|样品/.test(a.firstMoney)) bad.push('② 说不清第一笔钱从哪来 → 无法验收');
+  if (!/条|份|个|篇|封|张|页/.test(a.success)) bad.push('③ 达标标准必须可数（几条/几份/几个）');
+  if (!a.deadline) bad.push('④ 没有截止日期的需求会无限膨胀');
+  if (/现在|今天|马上|立刻/.test(a.deadline)) bad.push('④ 仓促交付必然返工，请给一个现实的日期');
+  if (/大型|集团|上市公司|万人/.test(a.goal)) bad.push('① 大型公司是多年组织工程，不是可交付产品');
+  if (bad.length) {
+    box.className = 'sync-msg error';
+    box.innerHTML = '交付不了，还差这些：<br>· ' + bad.join('<br>· ') + '<br>改完再试。改不动就先别付钱。';
+    return;
+  }
+  box.className = 'sync-msg ok';
+  box.innerHTML = '✅ 可以进入方案阶段。向下选方案，下单后会生成一份<b>交付说明书</b>：逐项验收 + ' +
+    '改稿轮次 + 退出条款，你逐条确认后才生效。<br>我们不替你做任何确认。';
+  document.getElementById('pricingCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+
+<section class="how-it-works">
+  <h2 style="text-align:center;margin-bottom:24px;font-size:22px">三步开通，即刻生效</h2>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-txt"><h4>选方案下单</h4><p>点击上方任意方案，系统生成唯一订单号</p></div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-txt"><h4>扫码付款</h4><p>国内用支付宝 / 微信扫码，海外用 PayPal，备注写上订单号</p></div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-txt"><h4>扫码即开通</h4><p>付款成功即刻自动开通，无需截图回传、无需等待核销</p></div>
+  </div>
+  <!-- 【2026-10-21 额度口径透明】未订阅也能用：按真实登记表渲染每日免费额度与各档日限
+       （数据来自 /v1/subs/quota，不手抄；拿不到就不显示，绝不编造） -->
+  <div class="sub" id="landingQuota" style="text-align:center;margin-top:18px;line-height:1.8"></div>
+</section>
+
+<section id="pricingCard" class="pricing">
+  <article class="plan trial" data-plan="t">
+    <span class="plan-tag">首7天体验 ¥1</span>
+    <div class="plan-name">首7天体验</div>
+    <div class="plan-price">¥1<span>/7天</span></div>
+    <p class="plan-desc">每人限一次 · 7 天全功能体验 · 到期后按 ¥99/月续订（可随时取消）</p>
+    <button class="plan-btn" onclick="subscribe('t')"><span class="loading hidden"></span>立即开通 ¥1（7 天）</button>
+    <ul class="features">
+      <li>深度思考 / 决策框架 / Agent 会诊</li>
+      <li>内容铸造 / 游戏制作 / 音乐制作</li>
+      <li>获客闭环 / 指挥塔 / 组织大脑</li>
+      <li>学习进化 / 记忆中心 / 自主运营</li>
+    </ul>
+  </article>
+
+  <article class="plan standard" data-plan="m">
+    <span class="plan-tag">最灵活</span>
+    <div class="plan-name">月度</div>
+    <div class="plan-price">¥99<span>/月</span></div>
+    <p class="plan-desc">随时停 · 无长期绑定 · 适合先跑通一个项目再决定</p>
+    <button class="plan-btn" onclick="subscribe('m')"><span class="loading hidden"></span>订阅月度 ¥99</button>
+    <ul class="features">
+      <li>包含首7天体验所有功能</li>
+      <li>无使用次数限制</li>
+      <li>优先获得新功能</li>
+    </ul>
+  </article>
+
+  <article class="plan standard" data-plan="q">
+    <span class="plan-tag">省 9%</span>
+    <div class="plan-name">季度</div>
+    <div class="plan-price">¥269<span>/季</span></div>
+    <p class="plan-desc">折合 ¥89.7/月 · 适合已有稳定产出节奏的团队</p>
+    <button class="plan-btn" onclick="subscribe('q')"><span class="loading hidden"></span>订阅季度 ¥269</button>
+    <ul class="features">
+      <li>包含月度所有权益</li>
+      <li>季度账单一次搞定</li>
+    </ul>
+  </article>
+
+  <article class="plan standard" data-plan="y">
+    <span class="plan-tag">省 24%</span>
+    <div class="plan-name">年度</div>
+    <div class="plan-price">¥899<span>/年</span></div>
+    <p class="plan-desc">折合 ¥74.9/月 · 最大折扣 · 锁定一年价格</p>
+    <button class="plan-btn" onclick="subscribe('y')"><span class="loading hidden"></span>订阅年度 ¥899</button>
+    <ul class="features">
+      <li>包含季度所有权益</li>
+      <li>邀请返利：1 付费好友送 1 月 · 10 付费好友送 1 年</li>
+    </ul>
+  </article>
+</section>
+
+<section class="sec" id="shots">
+  <h2>功能截图</h2>
+  <p class="lead">以下截图来自本产品的真实控制台，非示意图。</p>
+  <div class="shots">
+    <figure class="shot">
+      <img src="/assets/console.png" data-src-en="/assets/console.en.png" data-src-ar="/assets/console.ar.png" alt="Agent 驾驶舱控制台界面截图" loading="lazy" data-shot="true">
+      <figcaption>Agent 驾驶舱：决策框架 / 组织大脑 / 内容铸造 / 获客闭环，一个订阅全模块可用</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="sec">
+  <h2>真实使用场景</h2>
+  <p class="lead">我们不编造客户故事。这里只列出产品确实能做的事，你可以自行验证。</p>
+  <div class="usecases">
+    <div class="uc"><h4>决策复盘</h4><p>把一次关键决策的背景、备选方案、依据与结论沉淀下来，事后可回溯「当时为什么这么定」，减少重复踩坑。</p></div>
+    <div class="uc"><h4>内容铸造</h4><p>一条素材生成适配不同平台的多版本文案，并保留来源与依据，发布前由你确认，不做无依据的承诺。</p></div>
+    <div class="uc"><h4>获客闭环</h4><p>只触达已明确同意接收的线索，绝不向陌生地址群发；每次发送都有真实留痕，失败如实记录，随时可退订。</p></div>
+  </div>
+</section>
+
+<section class="sec">
+  <h2>用户评价</h2>
+  <p class="lead">这里只展示已审核、且作者同意公开的真实评价。我们绝不用模板或伪造的证言填充。</p>
+  <div class="reviews" id="reviews"></div>
+  <div class="reviews-empty" id="reviewsEmpty">还没有已审核的真实评价——因为我们不做假证言。<br>欢迎成为第一批用户，留下你的真实体验。</div>
+
+  <div class="form-card">
+    <h4 style="margin:0 0 12px">写下你的真实评价</h4>
+    <div class="row">
+      <input id="rvName" placeholder="你的称呼（可留空，匿名展示）">
+      <input id="rvRole" placeholder="身份，如：独立开发者 / 小团队负责人">
+    </div>
+    <select id="rvRating">
+      <option value="5">★★★★★ 非常满意</option>
+      <option value="4">★★★★☆ 满意</option>
+      <option value="3">★★★☆☆ 一般</option>
+      <option value="2">★★☆☆☆ 不太满意</option>
+      <option value="1">★☆☆☆☆ 不满意</option>
+    </select>
+    <textarea id="rvText" placeholder="说说真实使用感受（会按上面的称呼或匿名展示）"></textarea>
+    <label class="consent-row"><input type="checkbox" id="rvConsent"> 我同意在落地页展示这条评价（可匿名）。我保证这是真实体验。</label>
+    <button class="sync-btn" onclick="submitReview()">提交评价</button>
+    <p class="sync-msg" id="reviewMsg"></p>
+  </div>
+</section>
+
+<section class="sec">
+  <h2>获取更新与案例</h2>
+  <p class="lead">留下邮箱，第一时间收到新功能与真实案例。我们只在你同意后联系，随时可回复「退订」。</p>
+  <div class="sync-row">
+    <input id="waitlistEmail" type="email" placeholder="你的邮箱，如 you@example.com" autocomplete="email">
+    <button class="sync-btn" onclick="joinWaitlist()">订阅更新</button>
+  </div>
+  <label class="consent-row"><input type="checkbox" id="waitlistConsent"> 我同意接收产品更新邮件（可随时退订）。</label>
+  <p class="sync-msg" id="waitlistMsg"></p>
+</section>
+
+<section class="synccard">
+  <h2>跨设备同步 · 邮箱绑定</h2>
+  <p class="muted">绑定邮箱后，换电脑 / 换浏览器用邮箱验证码登录，订阅与额度自动恢复。</p>
+
+  <div id="boundRow" class="hidden">
+    <span class="pill" id="boundEmail"></span>
+    <button class="sync-btn ghost" onclick="doUnbind()">解绑</button>
+  </div>
+
+  <div id="bindForm">
+    <div class="sync-row">
+      <input id="bindEmail" type="email" placeholder="你的邮箱，如 you@example.com" autocomplete="email">
+      <button class="sync-btn" id="sendBtn" onclick="sendCode()">发送验证码</button>
+    </div>
+    <div class="sync-row hidden" id="codeRow">
+      <input id="bindCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" autocomplete="one-time-code">
+      <button class="sync-btn" onclick="doBind()">绑定并同步</button>
+      <button class="sync-btn ghost" onclick="doLogin()">登录找回</button>
+    </div>
+    <p class="sync-msg" id="syncMsg"></p>
+  </div>
+</section>
+
+<footer>
+  <p>丙大山AI · Agent 驾驶舱 | <a href="/app">进入控制台</a> | <a href="/v1/compliance/clauses">服务条款</a> | <a href="/v1/privacy/portability">隐私政策</a></p>
+</footer>
+</div>
+
+<!-- 订单确认弹窗 -->
+<div class="modal" id="orderModal">
+  <div class="modal-box">
+    <h3 id="modalTitle">订单已生成</h3>
+    <p style="color:var(--muted);margin-bottom:16px">请按以下信息完成付款</p>
+    <div class="order-info" id="orderInfo"></div>
+    <div class="qr-placeholder" id="qrBox">暂无收款码<br>请联系客服获取收款信息</div>
+    <div class="order-info" id="orderStatus" style="margin-top:10px"></div>
+    <p style="color:var(--muted);font-size:13px;text-align:center">付款成功后即刻自动开通，无需截图回传或等待核销</p>
+    <button class="btn-close" onclick="closeModal()">我知道了，去付款</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 多语言（zh/en/ar）：须在主脚本之前加载，主脚本用 LT() 输出动态文案 -->
+<script src="landing-i18n.js?v=20261016a"></script>
+<script>
+// LT：动态文案翻译（landing-i18n.js 未加载时原样返回中文，绝不报错）
+const LT = x => (window.LANDING_T ? window.LANDING_T(x) : x);
+// 【2026-10-21 额度口径透明】未订阅也能用：按 /v1/subs/quota 的真实登记表渲染
+// （竞品 2026-07 因"额度口径不透明"被集中投诉；我们把免费额度与各档日限写明）
+(async function renderLandingQuota() {
+  const box = document.getElementById('landingQuota');
+  if (!box) return;
+  try {
+    const r = await fetch('/v1/subs/quota');
+    const d = await r.json();
+    if (!d || !d.ok || !d.free || !d.free.length) return;
+    const free = d.free.map(f => f.label + ' ' + f.perDay + '/日').join(' · ');
+    const heavy = (d.heavySections || []).length;
+    const tiers = (d.tiers || []).filter(t => !t.trial)
+      .map(t => t.label + ' ¥' + t.amount + (heavy ? '（重耗 ' + t.heavyDaily + '）' : '（不限次）')).join(' · ');
+    box.innerHTML = LT('未订阅也能用：每个功能区每天都有免费额度（用完明日恢复）') +
+      ' <b>' + free + '</b><br>' + LT('订阅后：') + ' ' + tiers;
+  } catch (e) { /* 拿不到就不显示，绝不编造数字 */ }
+})();
+// 访客身份管理：优先用 localStorage 的 vid，没有则调用 identity 接口
+let VID = localStorage.getItem('bd_vid') || '';
+async function ensureVID() {
+  if (VID) return VID;
+  try {
+    const r = await fetch('/v1/subs/identity', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key: 'landing-' + Date.now().toString(36)})
+    });
+    const j = await r.json();
+    if (j.ok && j.vid) {
+      VID = j.vid;
+      localStorage.setItem('bd_vid', VID);
+      return VID;
+    }
+  } catch (e) {}
+  return '';
+}
+
+// 检查试用资格并更新 UI
+async function checkTrialEligibility() {
+  if (!VID) return;
+  try {
+    const r = await fetch('/v1/subs/status', {headers: {'X-Visitor': VID}});
+    const j = await r.json();
+    if (j.ok && j.trialUsed) {
+      document.querySelector('.plan[data-plan="t"]').classList.add('hidden');
+    }
+  } catch (e) {}
+}
+
+async function subscribe(planId) {
+  if (!VID) await ensureVID();
+  const btn = document.querySelector(`.plan[data-plan="${planId}"] .plan-btn`);
+  const loading = btn.querySelector('.loading');
+  btn.disabled = true; loading.classList.remove('hidden');
+  try {
+    const r = await fetch('/v1/subs/order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Visitor': VID},
+      body: JSON.stringify({plan: planId, lang: (window.LANDING_LANG || 'zh')})
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '下单失败');
+    // 下单后立刻取「自动支付」付款信息（支付宝官方商户二维码 / PayPal 跳转）。
+    // 所有套餐（¥1 / ¥99 / ¥269 / ¥899）共用同一条通道——不按套餐区别对待，
+    // 否则月度能扫、其他套餐只能备注等人工确认，那就不是「付款即开通」。
+    const gate = await fetchGate(j.order.id, j.order.currency);
+    showOrder(j.order, j.pay, gate);
+    // 如果是体验单，下单后刷新资格（防止重复点击）
+    if (planId === 't') checkTrialEligibility();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false; loading.classList.add('hidden');
+  }
+}
+
+// 取自动支付通道信息：CNY → 支付宝官方商户二维码；USD → PayPal。
+// 任一通道未就绪都返回 null，由 showOrder 回落到「手动收款码 + 备注订单号」的老路子。
+async function fetchGate(orderId, currency) {
+  const channel = currency === 'CNY' ? 'alipay' : 'paypal';
+  try {
+    const r = await fetch('/v1/pay/checkout', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Visitor': VID},
+      body: JSON.stringify({ orderId, currency, channel })
+    });
+    const j = await r.json();
+    return (j && j.ok) ? j : null;
+  } catch (e) { return null; }
+}
+
+let _orderWatch = null;
+// 到账轮询：网关到账或主动查单都会把订单标 paid，这里只如实反映状态，绝不本地臆断。
+function watchOrder(orderId, box) {
+  if (_orderWatch) { clearInterval(_orderWatch); _orderWatch = null; }
+  if (box) box.innerHTML = '<div style="text-align:center;color:#7dd3a0">' + escL(LT('自动检测到账中（每 5 秒一次）…')) + '</div>';
+  _orderWatch = setInterval(async () => {
+    try {
+      const r = await fetch('/v1/pay/status?order=' + encodeURIComponent(orderId), { headers: { 'X-Visitor': VID } });
+      const s = await r.json();
+      if (s && s.ok && s.paid) {
+        clearInterval(_orderWatch); _orderWatch = null;
+        if (box) box.innerHTML = '<div style="text-align:center;font-size:15px;font-weight:600;color:#7dd3a0">✅ ' + escL(LT('支付到账，订阅已开通')) + '</div>';
+        const qr = document.getElementById('qrBox');
+        if (qr) qr.innerHTML = '<div style="text-align:center;font-size:44px;padding:20px 0">✅</div>';
+        const info = document.getElementById('orderInfo');
+        if (info) info.textContent = LT('订单号') + ': ' + orderId + '\n' + LT('状态') + ': ✅ ' + LT('支付到账，订阅已开通');
+      }
+    } catch (e) {}
+  }, 5000);
+}
+// 局部 HTML 转义（只服务这里动态拼出的收款弹窗内容；line 611 的全局 escHtml 已存在，避免重名）
+const escL = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function showOrder(order, pay, gate) {
+  const statusBox = document.getElementById('orderStatus');
+  const isQrL = s => typeof s === 'string' && /^(data:image\/|https?:\/\/)/.test(s.trim());
+  // ① 自动支付：支付宝官方商户二维码（CNY）/ PayPal（USD）。
+  // 只给二维码，不内嵌整页收银台（iframe 在部分网络/代理下会打不开），
+  // 也不给「前往支付」按钮——qr.alipay.com 短链只能用 App 扫，浏览器打不开。
+  if (gate && gate.mode === 'gateway' && (isQrL(gate.qrData) || isQrL(gate.payUrl))) {
+    const qr = isQrL(gate.qrData) ? gate.qrData : gate.payUrl;
+    statusBox.innerHTML = '';
+    document.getElementById('orderInfo').textContent =
+      LT('订单号') + ': ' + order.id + '\n'
+      + LT('金额') + ': ' + order.amount + ' ' + order.currency + '\n'
+      + LT(order.currency === 'CNY'
+        ? '支付方式：扫码（支付宝）· 自动开通，无需备注订单号'
+        : '支付方式：PayPal · 自动开通，无需备注订单号') + '\n'
+      + LT('状态') + ': ' + LT('待支付');
+    document.getElementById('qrBox').innerHTML =
+      '<div style="text-align:center;margin:8px 0">'
+      + '<img src="' + escL(qr) + '" alt="pay-qr" style="max-width:260px;width:100%;background:#fff;border-radius:10px;padding:8px">'
+      + '<div style="font-size:13px;color:#9fb3c8;margin-top:8px">'
+      + escL(LT(order.currency === 'CNY'
+        ? '请用手机支付宝「扫一扫」上方二维码付款，付款成功即自动开通。'
+        : '请用 PayPal 完成付款，付款成功即自动开通。'))
+      + '</div></div>';
+    // PayPal 只给二维码不够：网页收银台见「②」，这里补一个跳转按钮
+    if (order.currency !== 'CNY' && gate.action && gate.action.url) {
+      const go = document.createElement('button');
+      go.className = 'btn-close';
+      go.style.marginTop = '8px';
+      go.textContent = LT('前往 PayPal 付款');
+      go.onclick = () => { window.open(gate.action.url, '_blank', 'noopener'); };
+      document.getElementById('qrBox').appendChild(go);
+    }
+    document.getElementById('orderModal').classList.add('open');
+    watchOrder(order.id, statusBox);
+    return;
+  }
+  const r = (pay && pay.receive) || {};
+  // 收款渠道就绪与否如实呈现：未配置二维码时不谎称"可扫码"，只引导联系客服。
+  const ready = !!(r.alipay || r.wechat || r.receiveQrAlipay || r.receiveQrWechat);
+  const payHint = ready
+    ? LT('请用支付宝 / 微信扫码付款（海外买家用 PayPal），务必在备注中填写订单号：') + order.id
+    : LT('收款渠道正在配置中，请先联系客服完成下单');
+  const info = LT('订单号') + ': ' + order.id + '\n'
+    + LT('方案') + ': ' + order.plan + '\n'
+    + LT('金额') + ': ' + order.amount + ' ' + order.currency + '\n'
+    + LT('创建时间') + ': ' + new Date(order.at).toLocaleString() + '\n\n'
+    + LT('支付方式: 支付宝 / 微信（国内扫码）· PayPal（海外，联系客服获取链接）') + '\n\n'
+    + payHint;
+  document.getElementById('orderInfo').textContent = info;
+  // 收款码：接口字段为 receive.alipay / receive.wechat（历史前端误读 receive.qrAlipay，
+  // 导致运营上传收款码后买家仍看到「暂无收款码」，此处两种字段都兼容）。
+  const imgs = [];
+  const qrA = r.alipay || r.qrAlipay || '';
+  const qrW = r.wechat || r.qrWechat || '';
+  if (qrA) imgs.push('<div style="text-align:center;margin:8px 0"><div style="font-size:13px;color:#9fb3c8;margin-bottom:6px">支付宝收款码（扫码付款）</div><img src="' + qrA + '" alt="支付宝收款码" style="max-width:260px;width:100%;border-radius:8px"></div>');
+  if (qrW) imgs.push('<div style="text-align:center;margin:8px 0"><div style="font-size:13px;color:#9fb3c8;margin-bottom:6px">微信收款码（扫码付款）</div><img src="' + qrW + '" alt="微信收款码" style="max-width:260px;width:100%;border-radius:8px"></div>');
+  document.getElementById('qrBox').innerHTML = imgs.length ? imgs.join('') : (LT('暂无收款码') + '<br>' + LT('请联系客服获取收款信息（国内支付宝/微信 · 海外 PayPal）'));
+  document.getElementById('orderModal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('orderModal').classList.remove('open');
+  // 关窗即停轮询：开着弹窗才需要检测到账，关掉后由订阅面板自己刷新
+  if (_orderWatch) { clearInterval(_orderWatch); _orderWatch = null; }
+}
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (isError ? 'error' : 'success');
+  setTimeout(() => t.classList.remove('show'), 4000);
+}
+document.getElementById('orderModal').addEventListener('click', e => { if (e.target.id === 'orderModal') closeModal(); });
+
+// ===== 跨设备同步：邮箱绑定 / 验证码登录找回 =====
+let bindTarget = '';
+let bindCountdown = null;
+
+function syncMsg(text, kind) {
+  const el = document.getElementById('syncMsg');
+  el.textContent = text || '';
+  el.className = 'sync-msg' + (kind ? ' ' + kind : '');
+}
+
+function renderBound(email) {
+  const has = !!email;
+  document.getElementById('boundRow').classList.toggle('hidden', !has);
+  document.getElementById('bindForm').classList.toggle('hidden', has);
+  if (has) document.getElementById('boundEmail').textContent = LT('已绑定') + ' ' + email;
+}
+
+async function loadBindings() {
+  if (!VID) return;
+  try {
+    const r = await fetch('/v1/auth/bindings?vid=' + encodeURIComponent(VID));
+    const j = await r.json();
+    if (j.ok) renderBound(j.email || '');
+  } catch (e) {}
+}
+
+function startCountdown(sec) {
+  const btn = document.getElementById('sendBtn');
+  let n = sec || 60;
+  clearInterval(bindCountdown); bindCountdown = null;
+  btn.disabled = true;
+  btn.textContent = n + LT('s 后可重发');
+  bindCountdown = setInterval(() => {
+    n -= 1;
+    if (n <= 0) { clearInterval(bindCountdown); bindCountdown = null; btn.disabled = false; btn.textContent = LT('重新发送'); }
+    else btn.textContent = n + LT('s 后可重发');
+  }, 1000);
+}
+
+async function sendCode() {
+  if (!VID) await ensureVID();
+  const email = document.getElementById('bindEmail').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { syncMsg('请输入有效邮箱地址', 'error'); return; }
+  syncMsg('正在发送…');
+  try {
+    const r = await fetch('/v1/auth/send-code', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target: email, type: 'email' })
+    });
+    const j = await r.json();
+    if (!j.ok) { syncMsg(j.error || '发送失败', 'error'); if (j.retryAfter) startCountdown(j.retryAfter); return; }
+    bindTarget = email;
+    document.getElementById('codeRow').classList.remove('hidden');
+    syncMsg(j.message || '验证码已发送，请查收邮箱（含垃圾箱）', 'ok');
+    startCountdown(60);
+  } catch (e) { syncMsg('网络异常，请稍后重试', 'error'); }
+}
+
+async function doBind() {
+  if (!VID) await ensureVID();
+  const email = (bindTarget || document.getElementById('bindEmail').value.trim());
+  const code = document.getElementById('bindCode').value.trim();
+  if (!/^\d{6}$/.test(code)) { syncMsg('请输入 6 位数字验证码', 'error'); return; }
+  syncMsg('正在绑定…');
+  try {
+    const r = await fetch('/v1/auth/bind', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target: email, type: 'email', code, vid: VID })
+    });
+    const j = await r.json();
+    if (!j.ok) { syncMsg(j.error || '绑定失败', 'error'); return; }
+    syncMsg(j.message || '绑定成功', 'ok');
+    bindTarget = '';
+    await loadBindings();
+  } catch (e) { syncMsg('网络异常，请稍后重试', 'error'); }
+}
+
+async function doLogin() {
+  const email = document.getElementById('bindEmail').value.trim();
+  const code = document.getElementById('bindCode').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { syncMsg('请输入有效邮箱地址', 'error'); return; }
+  if (!/^\d{6}$/.test(code)) { syncMsg('请先点“发送验证码”，再填入 6 位验证码', 'error'); return; }
+  syncMsg('正在登录找回…');
+  try {
+    const r = await fetch('/v1/auth/login', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target: email, type: 'email', code })
+    });
+    const j = await r.json();
+    if (!j.ok) { syncMsg(j.error || '登录失败', 'error'); return; }
+    VID = j.vid;
+    localStorage.setItem('bd_vid', VID);
+    syncMsg('登录成功，订阅状态已恢复', 'ok');
+    await loadBindings();
+    checkTrialEligibility();
+  } catch (e) { syncMsg('网络异常，请稍后重试', 'error'); }
+}
+
+async function doUnbind() {
+  if (!VID) return;
+  if (!confirm(LT('确定解绑邮箱？解绑后将无法用邮箱跨设备找回订阅。'))) return;
+  try {
+    const r = await fetch('/v1/auth/unbind', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ vid: VID, type: 'email' })
+    });
+    const j = await r.json();
+    if (j.ok) { renderBound(''); syncMsg('已解绑', 'ok'); }
+    else syncMsg(j.error || '解绑失败', 'error');
+  } catch (e) { syncMsg('网络异常，请稍后重试', 'error'); }
+}
+
+// ===== 真实评价 与 等待名单（Step 2：诚实内容分发）=====
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function starStr(n) {
+  n = Math.max(1, Math.min(5, parseInt(n, 10) || 5));
+  return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
+}
+async function loadReviews() {
+  const wrap = document.getElementById('reviews');
+  const empty = document.getElementById('reviewsEmpty');
+  try {
+    const r = await fetch('/v1/reviews');
+    const j = await r.json();
+    if (!j.ok || !Array.isArray(j.reviews) || !j.reviews.length) {
+      wrap.innerHTML = ''; empty.classList.remove('hidden'); return;
+    }
+    empty.classList.add('hidden');
+    wrap.innerHTML = j.reviews.map(rv =>
+      '<div class="review"><div class="who">' + escHtml(rv.name) + '</div>' +
+      (rv.role ? '<div class="role">' + escHtml(rv.role) + '</div>' : '') +
+      '<div class="stars">' + starStr(rv.rating) + '</div>' +
+      '<p>' + escHtml(rv.text) + '</p></div>'
+    ).join('');
+  } catch (e) {
+    wrap.innerHTML = ''; empty.classList.remove('hidden');
+  }
+}
+async function submitReview() {
+  const msg = document.getElementById('reviewMsg');
+  const name = document.getElementById('rvName').value.trim();
+  const role = document.getElementById('rvRole').value.trim();
+  const rating = document.getElementById('rvRating').value;
+  const text = document.getElementById('rvText').value.trim();
+  const consent = document.getElementById('rvConsent').checked;
+  if (text.length < 4) { msg.textContent = '请多写两句真实感受'; msg.className = 'sync-msg error'; return; }
+  if (!consent) { msg.textContent = '请勾选同意展示——我们绝不伪造或擅自公开评价'; msg.className = 'sync-msg error'; return; }
+  msg.textContent = '正在提交…'; msg.className = 'sync-msg';
+  try {
+    const r = await fetch('/v1/reviews', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, role: role, rating: rating, text: text, consent: true })
+    });
+    const j = await r.json();
+    if (!j.ok) { msg.textContent = j.error || '提交失败'; msg.className = 'sync-msg error'; return; }
+    msg.textContent = j.message || '已提交，等待审核'; msg.className = 'sync-msg ok';
+    document.getElementById('rvText').value = '';
+  } catch (e) { msg.textContent = '网络异常，请稍后重试'; msg.className = 'sync-msg error'; }
+}
+async function joinWaitlist() {
+  const msg = document.getElementById('waitlistMsg');
+  const email = document.getElementById('waitlistEmail').value.trim();
+  const consent = document.getElementById('waitlistConsent').checked;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.textContent = '请输入有效邮箱地址'; msg.className = 'sync-msg error'; return; }
+  if (!consent) { msg.textContent = '请勾选同意接收，我们才会联系你'; msg.className = 'sync-msg error'; return; }
+  msg.textContent = '正在提交…'; msg.className = 'sync-msg';
+  try {
+    const r = await fetch('/v1/waitlist', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, consent: true, source: 'landing' })
+    });
+    const j = await r.json();
+    msg.textContent = j.ok ? (j.message || '已登记') : (j.error || '提交失败');
+    msg.className = 'sync-msg ' + (j.ok ? 'ok' : 'error');
+    if (j.ok) document.getElementById('waitlistEmail').value = '';
+  } catch (e) { msg.textContent = '网络异常，请稍后重试'; msg.className = 'sync-msg error'; }
+}
+
+// 初始化
+ensureVID().then(() => { checkTrialEligibility(); loadBindings(); loadReviews(); });
+</script>
+</body>
+</html>

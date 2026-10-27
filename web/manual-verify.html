@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>人工通道核账台 · 丙大山AI</title>
+<link rel="icon" href="/icons/favicon-32.png">
+<style>
+:root{--bg:#0b0f14;--fg:#e8edf2;--muted:#7a8a9a;--accent:#10b981;--accent-dim:#0d8a63;--card:#111820;--border:#1e2a38;--warn:#f59e0b;--err:#ef4444;--blue:#3b82f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;padding:24px}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+input,select,textarea{padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:#0a1218;color:var(--fg);font-size:14px;font-family:inherit}
+input{flex:1;min-width:200px}
+.btn{padding:9px 16px;border-radius:9px;border:none;background:var(--accent);color:#051d13;font-weight:700;cursor:pointer;font-size:14px}
+.btn:hover{background:var(--accent-dim)}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--fg)}
+.btn.warn{background:var(--warn);color:#1a1206}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill.ok{background:rgba(16,185,129,.15);color:var(--accent)}
+.pill.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+.pill.err{background:rgba(239,68,68,.15);color:#fca5a5}
+.pill.off{background:rgba(122,138,154,.15);color:var(--muted)}
+.pill.blue{background:rgba(59,130,246,.15);color:#93c5fd}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+td code{background:#0a1218;border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.msg{font-size:14px;margin-top:10px;min-height:20px}
+.msg.ok{color:#6ee7b7}.msg.err{color:#fca5a5}
+.st{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 18px;min-width:130px}
+.stat b{display:block;font-size:24px;line-height:1.2}
+.stat span{color:var(--muted);font-size:12px}
+.empty{text-align:center;color:var(--muted);padding:36px 10px;font-size:14px}
+.shot{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;z-index:99;padding:20px}
+.shot.on{display:flex}
+.shot img{max-width:92vw;max-height:88vh;border-radius:10px;background:#fff}
+.shot .x{position:absolute;top:16px;right:20px;color:#fff;font-size:28px;cursor:pointer;line-height:1}
+.note{color:var(--muted);font-size:12px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>人工通道核账台</h1>
+  <div class="sub">内部工具：客户上传凭证后<b>立即开通</b>，系统在此<b>24 小时内</b>完成核账。超时未确认将自动回收权益并要求客户补交截图。</div>
+
+  <div class="card">
+    <div class="bar">
+      <input id="token" type="password" placeholder="管理令牌（x-admin-token）">
+      <button class="btn" id="load">刷新</button>
+      <button class="btn ghost" id="sweep">立即执行超时回收</button>
+      <span class="msg" id="msg"></span>
+    </div>
+    <div class="st">
+      <div class="stat"><b id="sPending" style="color:var(--warn)">-</b><span>待核账（24h 内）</span></div>
+      <div class="stat"><b id="sNeed" style="color:var(--err)">-</b><span>已超时·待补图</span></div>
+      <div class="stat"><b id="sConf" style="color:var(--accent)">-</b><span>已确认到账</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-t" style="font-size:15px;font-weight:700;margin-bottom:10px">支付通道实测状态</div>
+    <div id="chanBox" class="sub">加载中…</div>
+    <div class="bar" style="margin-top:10px">
+      <button class="btn ghost" id="reprobe">重新实测全部通道</button>
+      <span class="msg" id="chanMsg"></span>
+    </div>
+    <div class="bar" style="margin-top:6px">
+      <label class="sub" style="color:var(--muted)">开通最短订单年龄(秒)
+        <input id="gAge" type="number" min="0" step="5" style="width:90px;margin:0 6px"></label>
+      <label class="sub" style="color:var(--muted)">24h 内待核销上限
+        <input id="gMax" type="number" min="0" step="1" style="width:80px;margin:0 6px"></label>
+      <label class="sub" style="color:var(--muted)">同时待核销笔数
+        <input id="gConc" type="number" min="0" step="1" style="width:80px;margin:0 6px"></label>
+      <button class="btn ghost" id="gSave">保存</button>
+      <span class="msg" id="gMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th>订单号</th><th>金额</th><th>方案</th><th>状态</th><th>核账倒计时</th><th>凭证</th><th>截图</th><th>备注</th><th>操作</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="9" class="empty">点击「刷新」加载</td></tr></tbody>
+    </table>
+    <div class="note">「确认到账」= 我已在支付宝/微信后台看到这笔真实到账。确认后权益转正并计入营收记录。</div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(s){ return document.querySelector(s); };
+  function tok(){ try { return (localStorage.getItem('bd_adminToken') || $('#token').value || '').trim(); } catch(e){ return ($('#token').value||'').trim(); } }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function setMsg(t, k){ var m = $('#msg'); m.textContent = t || ''; m.className = 'msg' + (k ? ' ' + k : ''); }
+
+  function stPill(r){
+    if (r.manualStatus === 'confirmed') return '<span class="pill ok">已确认</span>';
+    if (r.needProof) return '<span class="pill err">超时·待补图</span>';
+    if (r.manualStatus === 'provisionally_active') return '<span class="pill warn">待核账</span>';
+    return '<span class="pill off">—</span>';
+  }
+  function hours(r){
+    if (r.manualStatus === 'confirmed') return '<span class="pill ok">已转正</span>';
+    if (r.hoursLeft == null) return '<span class="pill off">—</span>';
+    if (r.hoursLeft <= 0) return '<span class="pill err">已超时</span>';
+    return '<span class="pill blue">' + r.hoursLeft + ' h</span>';
+  }
+
+  async function load(){
+    setMsg('加载中…');
+    var t = tok();
+    if (!t) { setMsg('请先填管理令牌', 'err'); return; }
+    try { localStorage.setItem('bd_adminToken', t); } catch(e){}
+    try {
+      var r = await fetch('/v1/pay/manual-queue', { headers: { 'X-Admin-Token': t } });
+      var d = await r.json();
+      if (!d.ok) { setMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
+      $('#sPending').textContent = d.stat.pending;
+      $('#sNeed').textContent = d.stat.needProof;
+      $('#sConf').textContent = d.stat.confirmed;
+      var tb = $('#rows');
+      if (!d.rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">暂无人工通道订单</td></tr>'; setMsg('已加载（0 条）','ok'); return; }
+      tb.innerHTML = d.rows.map(function(r){
+        var act = (r.manualStatus === 'confirmed') ? '<span class="pill ok">已完成</span>'
+          : '<button class="btn" data-id="' + esc(r.id) + '" data-act="confirm">确认到账</button> ' +
+            '<button class="btn ghost" data-id="' + esc(r.id) + '" data-act="sweep">回收</button>';
+        var note = r.proofNote ? esc(r.proofNote).slice(0,60) : '<span style="color:var(--muted)">—</span>';
+        return '<tr><td><code>' + esc(r.id) + '</code></td>' +
+          '<td>' + esc(r.amount) + ' ' + esc(r.currency) + '</td>' +
+          '<td>' + esc(r.plan) + '</td>' +
+          '<td>' + stPill(r) + '</td>' +
+          '<td>' + hours(r) + '</td>' +
+          '<td>' + (r.proofCount ? (r.proofCount + ' 次' + (r.proofAt ? ' · ' + new Date(r.proofAt).toLocaleString('zh-CN') : '')) : '<span style="color:var(--muted)">—</span>') + '</td>' +
+          '<td>' + (r.proofImage ? '<a href="#" data-shot="' + esc(r.proofImage) + '" style="color:var(--accent)">查看截图</a>' : '<span style="color:var(--muted)">—</span>') + '</td>' +
+          '<td>' + note + '</td>' +
+          '<td>' + act + '</td></tr>';
+      }).join('');
+      tb.querySelectorAll('a[data-shot]').forEach(function(a){
+        a.onclick = function(ev){
+          ev.preventDefault();
+          var fn = a.dataset.shot;
+          var box = document.getElementById('shotBox');
+          var img = document.getElementById('shotImg');
+          // img 标签发不了 x-admin-token 头，所以走 fetch + blob URL
+          (async function(){
+            try {
+              var rr = await fetch('/v1/pay/proof-image/' + encodeURIComponent(fn) + '?t=' + Date.now(), { headers: { 'X-Admin-Token': tok() } });
+              if (!rr.ok) { alert('读取失败 HTTP ' + rr.status); return; }
+              var blob = await rr.blob();
+              if (img.dataset.blobUrl) { try { URL.revokeObjectURL(img.dataset.blobUrl); } catch(e){} }
+              var url = URL.createObjectURL(blob);
+              img.dataset.blobUrl = url;
+              img.src = url;
+              box.classList.add('on');
+            } catch (err) { alert('读取失败：' + (err && err.message ? err.message : err)); }
+          })();
+        };
+      });
+      var box2 = document.getElementById('shotBox');
+      if (box2) {
+        box2.onclick = function(e){ if (e.target === box2 || e.target.id === 'shotX') box2.classList.remove('on'); };
+      }
+      tb.querySelectorAll('button[data-id]').forEach(function(b){
+        b.onclick = async function(){
+          var id = b.dataset.id, act = b.dataset.act;
+          b.disabled = true;
+          try {
+            if (act === 'confirm') {
+              var rr = await fetch('/v1/pay/manual-verify', { method:'POST', headers:{ 'Content-Type':'application/json','X-Admin-Token': tok() }, body: JSON.stringify({ orderId: id }) });
+              var dd = await rr.json();
+              if (!dd.ok) { setMsg(dd.error || '确认失败', 'err'); } else { setMsg('已确认 ' + id + '，权益转正并记账', 'ok'); }
+            } else {
+              await fetch('/v1/pay/manual-sweep', { method:'POST', headers:{ 'X-Admin-Token': tok() } });
+              setMsg('已执行超时回收', 'ok');
+            }
+            await load();
+          } catch(e){ setMsg('网络错误：' + (e.message||''), 'err'); b.disabled = false; }
+        };
+      });
+      setMsg('已加载 ' + d.rows.length + ' 条', 'ok');
+    } catch(e){ setMsg('网络错误：' + (e.message||''), 'err'); }
+  }
+
+  async function loadChans() {
+    var box = document.getElementById('chanBox');
+    if (!box) return;
+    try {
+      var r = await fetch('/v1/pay/channels');
+      var j = await r.json();
+      function line(name, c, extra) {
+        var ok = c && (c.ready || c.verified);
+        var pill = ok ? '<span class="pill ok">可用</span>' : (c && c.blocked ? '<span class="pill err">被拒</span>' : '<span class="pill warn">不可用</span>');
+        return '<div style="padding:5px 0;display:flex;gap:10px;align-items:flex-start">'
+          + '<b style="min-width:74px">' + name + '</b>' + pill
+          + '<span style="color:var(--muted);font-size:12px;flex:1;word-break:break-all">' + esc((c && c.reason) || '') + '</span>'
+          + (extra || '') + '</div>';
+      }
+      box.innerHTML =
+        line('支付宝', j.alipay) +
+        line('微信', j.wechat) +
+        line('PayPal', j.paypal) +
+        line('人工通道', { ready: j.manual, reason: '个人收款码（始终可用）' }) +
+        '<div style="margin-top:8px;color:var(--muted);font-size:12px">当前对外开放的通道：<b style="color:var(--fg)">' + esc((j.channels||[]).join(' / ')) + '</b></div>';
+    } catch (e) {
+      box.textContent = '通道状态读取失败：' + (e && e.message ? e.message : e);
+    }
+  }
+  // 滥用防护参数
+  async function loadGuard() {
+    try {
+      var r = await fetch('/v1/pay/manual-guard', { headers: { 'X-Admin-Token': tok() } });
+      var j = await r.json();
+      if (j.ok) {
+        document.getElementById('gAge').value = j.minOrderAgeSec;
+        document.getElementById('gMax').value = j.maxPerDay;
+        document.getElementById('gConc').value = j.maxConcurrent;
+      }
+    } catch (e) {}
+  }
+  $('#gSave').onclick = async function(){
+    var m = document.getElementById('gMsg');
+    m.textContent = '保存中…';
+    try {
+      var r = await fetch('/v1/pay/manual-guard', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': tok() },
+        body: JSON.stringify({
+          minOrderAgeSec: Number(document.getElementById('gAge').value) || 0,
+          maxPerDay: Number(document.getElementById('gMax').value) || 0,
+          maxConcurrent: Number(document.getElementById('gConc').value) || 0
+        })
+      });
+      var j = await r.json();
+      m.textContent = j.ok ? '已保存' : (j.error || '保存失败');
+    } catch (e) { m.textContent = '保存失败：' + (e && e.message ? e.message : e); }
+  };
+  loadGuard();
+
+  $('#reprobe').onclick = async function(){
+    var m = document.getElementById('chanMsg');
+    m.textContent = '实测中…（会真实下单 0.01 元探针单）';
+    try {
+      var t = tok();
+      await fetch('/v1/pay/alipay/check?force=1', { headers: { 'X-Admin-Token': t } }).catch(function(){});
+      await fetch('/v1/pay/wechat/check?force=1', { headers: { 'X-Admin-Token': t } }).catch(function(){});
+      m.textContent = '实测完成';
+      await loadChans();
+    } catch (e) { m.textContent = '实测失败：' + (e && e.message ? e.message : e); }
+  };
+  loadChans();
+
+  $('#load').onclick = load;
+  $('#sweep').onclick = async function(){
+    try {
+      var r = await fetch('/v1/pay/manual-sweep', { method:'POST', headers:{ 'X-Admin-Token': tok() } });
+      var d = await r.json();
+      if (!d.ok) { setMsg(d.error || '失败', 'err'); return; }
+      setMsg('回收 ' + (d.expiredSubs||0) + ' 条权益，转 ' + (d.marked||0) + ' 单为待补图', 'ok');
+      await load();
+    } catch(e){ setMsg('网络错误', 'err'); }
+  };
+  try { var saved = localStorage.getItem('bd_adminToken'); if (saved) { $('#token').value = saved; } } catch(e){}
+  load();
+})();
+</script>
+<div class="shot" id="shotBox"><span class="x" id="shotX">&times;</span><img id="shotImg" alt="支付凭证截图"></div>
+</body>
+</html>

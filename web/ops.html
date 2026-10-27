@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>丙大山 · 运营台</title>
+<style>
+  :root {
+    --bg:#0b1020; --panel:#141b33; --panel2:#1b2444; --line:#2a3560;
+    --fg:#e8ecf8; --dim:#9aa6c8; --ok:#3ddc97; --warn:#ffc857; --bad:#ff6b6b; --acc:#6ea8fe;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); background:var(--panel);
+           display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  h1 { font-size:18px; margin:0; font-weight:700; }
+  .sub { color:var(--dim); font-size:12px; }
+  main { padding:20px 24px 60px; max-width:1280px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .card h2 .tag { font-size:11px; color:var(--dim); font-weight:400; }
+  .note { color:var(--dim); font-size:12px; margin:0 0 12px; }
+  input, button { font:inherit; border-radius:6px; }
+  input { background:var(--panel2); color:var(--fg); border:1px solid var(--line); padding:7px 10px; min-width:280px; }
+  button { background:var(--panel2); color:var(--fg); border:1px solid var(--line); padding:7px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:#1d3d7a; border-color:#2f5ba8; }
+  button.warn { background:#6b4a12; border-color:#8a6320; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:12px; }
+  .kpis { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
+  .kpi { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:150px; }
+  .kpi .v { font-size:20px; font-weight:700; }
+  .kpi .k { color:var(--dim); font-size:12px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .dim { color:var(--dim); }
+  .pill { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; border:1px solid var(--line); }
+  .pill.ok { border-color:#1f6f52; } .pill.warn { border-color:#7a5c1d; } .pill.bad { border-color:#7a2b2b; }
+  .banner { padding:10px 14px; border-radius:8px; margin-bottom:14px; font-size:13px; }
+  .banner.bad { background:#3a1b1b; border:1px solid #7a2b2b; }
+  .banner.ok { background:#12301f; border:1px solid #1f6f52; }
+  .banner.warn { background:#33280f; border:1px solid #7a5c1d; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .empty { color:var(--dim); padding:10px 2px; }
+  code { background:#0d1428; padding:1px 6px; border-radius:4px; font-size:12px; }
+  footer { color:var(--dim); font-size:12px; padding:10px 24px 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>丙大山 · 运营台</h1>
+  <span class="sub">收钱 · 退款 · 自动开通通道 —— 一页看清，不用翻数据库</span>
+  <span style="flex:1"></span>
+  <input id="tok" type="password" placeholder="运营令牌（X-Admin-Token）" autocomplete="off">
+  <button id="saveTok" class="primary">保存并连接</button>
+  <button id="refresh">刷新</button>
+</header>
+
+<main>
+  <div id="gate" class="banner warn">先填运营令牌：资金类接口（确认到账 / 退款出款 / 核账台）必须带令牌，回环也不例外。</div>
+
+  <section class="card" id="cardMoney">
+    <h2>钱 <span class="tag">站点账本口径：已到账且非自测；申请 ≠ 已退款</span></h2>
+    <p class="note" id="moneyNote">读取中…</p>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="card">
+    <h2>待核账（人工通道） <span class="tag">客户已回传凭证 / 临时通行，等运营确认</span></h2>
+    <p class="note">系统给 24 小时临时通行；超时未确认即判定支付失败并回收。确认到账 = 记账 + 开通订阅。</p>
+    <div id="manualBox"><div class="empty">读取中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>待支付订单 <span class="tag">扫码付款后还没开通的</span></h2>
+    <p class="note">收款邮箱通道正常时这些会自动开通；通道不通时在这里人工确认。</p>
+    <div id="pendingBox"><div class="empty">读取中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>退款待办 <span class="tag">申请 ≠ 已退款；只有实际转账并确认后才是已退</span></h2>
+    <p class="note">点「已实际转账」= 你**真的**把钱退给客户了。没转就别点 —— 这会写进账本。</p>
+    <div id="refundBox"><div class="empty">读取中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>自动开通通道 <span class="tag">到账邮件 → 严格匹配 → 自动开通（客户零操作）</span></h2>
+    <p class="note" id="chanNote">读取中…</p>
+    <div id="chanBox"></div>
+  </section>
+
+  <section class="card">
+    <h2>协助队列 <span class="tag">客户主动发起 · 带同意书 · 只做协调与留痕，不含屏幕控制</span></h2>
+    <p class="note" id="assistNote">读取中…</p>
+    <div id="assistBox"><div class="empty">读取中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>陪护监控中心 <span class="tag">老人/子女/设备/告警/任务 · 独立页面，需管理令牌</span></h2>
+    <p class="note">责任链：建档→绑定子女→设备心跳→告警→SLA 升级→接单/闭环→资料→收费。监控中心只看“现在有没有人出事”，闭环体检看“链条断在哪”。</p>
+    <p><a class="btn" href="/care/center.html" target="_blank" rel="noopener">打开陪护监控中心</a>
+       <a class="btn" href="/care/elder.html" target="_blank" rel="noopener">老人端</a>
+       <a class="btn" href="/care/family.html" target="_blank" rel="noopener">子女端</a></p>
+  </section>
+
+  <section class="card">
+    <h2>订阅闭环体检 <span class="tag">访问→试用→付费→激活→留存→续费→转介绍 + 断裂检查</span></h2>
+    <p class="note" id="loopNote">读取中…</p>
+    <div id="loopBox"><div class="empty">读取中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>审计结论 <span class="tag">钱账真相 + 收费墙漏网 + 队列健康（闭环体检，每 30 分钟自动一次）</span></h2>
+    <p class="note" id="auditNote">读取中…</p>
+    <div id="auditBox"><div class="empty">读取中…</div></div>
+  </section>
+</main>
+
+<footer>
+  运营台只读展示 + 受保护的写操作；所有资金动作都会进审计日志。缺数据一律显示「无数据」，不显示 0。
+</footer>
+
+<script src="/ops.js"></script>
+</body>
+</html>

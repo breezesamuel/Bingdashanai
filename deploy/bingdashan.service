@@ -1,0 +1,25 @@
+[Unit]
+Description=丙大山AI (BingDashan) - Agent 驾驶舱 / 收费墙站点
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 若用 nvm 安装的 node，请改成实际路径，例如 /root/.nvm/versions/node/v20.19.0/bin/node
+# 用 which node 查一下。
+ExecStart=/usr/bin/node /opt/bingdashan/server.js
+WorkingDirectory=/opt/bingdashan
+# .env 由进程环境加载（core/pay.js 也直接读 .env，二者一致）
+EnvironmentFile=-/opt/bingdashan/.env
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=3
+# 日志
+StandardOutput=append:/var/log/bingdashan/out.log
+StandardError=append:/var/log/bingdashan/err.log
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
