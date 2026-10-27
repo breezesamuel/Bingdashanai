@@ -57,6 +57,7 @@ const money = require('./core/money');
 const payout = require('./core/payout');
 const deliberation = require('./core/deliberation');
 const leadgen = require('./core/leadgen');
+require('./core/leadgen-icp-extra').register(leadgen); // 新增 ICP 细分（增量·幂等·不改 live 路由已有 4 类）
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 

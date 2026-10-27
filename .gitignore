@@ -16,3 +16,13 @@ server.err.log
 .DS_Store
 Thumbs.db
 
+
+# large binary build artifacts — excluded from git (rebuilt by CI); keep repo < 100MB
+app/win-unpacked/
+app/*.exe
+app/*.dmg
+app/*.zip
+app/*.AppImage
+app/*.deb
+tools/cliproxyapi/
+
