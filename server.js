@@ -67,6 +67,9 @@ const csSla = (function () { try { return require('./core/cs-sla'); } catch (e) 
 const trialConversion = (function () { try { return require('./core/trial-conversion'); } catch (e) { console.error('[trial-conversion] load fail:', e.message); return null; } })();
 const partnerRecruit = (function () { try { return require('./core/partner-recruit'); } catch (e) { console.error('[partner-recruit] load fail:', e.message); return null; } })();
 const ledgerClean = (function () { try { return require('./core/ledger-clean'); } catch (e) { console.error('[ledger-clean] load fail:', e.message); return null; } })();
+// 极限测试 + 容量（stresslab 并发压测/混沌/业务场景 · capacity 容量规划/韧性看板；只打隔离数据，不动生产）
+const stresslab = (function () { try { return require('./core/stresslab'); } catch (e) { console.error('[stresslab] load fail:', e.message); return null; } })();
+const capacityMod = (function () { try { return require('./core/capacity'); } catch (e) { console.error('[capacity] load fail:', e.message); return null; } })();
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 
@@ -1139,6 +1142,27 @@ async function handle(req, res) {
     // 综合：默认 dry-run；execute=true 才清假账+核销真挂账
     const b = await readBody(req);
     try { return json(res, 200, ledgerClean ? ledgerClean.cleanAll({ hours: Number(b.hours) || 24, execute: b.execute === true }) : { ok: false, error: 'ledger-clean 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 极限测试实验室（stresslab 并发/混沌/场景 + capacity 容量规划，均打隔离数据·显式开压）=====
+  if (p === '/v1/stresslab/board' && req.method === 'GET') {
+    try { return json(res, 200, stresslab ? stresslab.board() : { ok: false, error: 'stresslab 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/stresslab/run' && req.method === 'POST') {
+    // 显式开压：打 BINGDASHAN_DATA_DIR 隔离数据；body 可带 target/duration/concurrency/rounds/chaosRate
+    const b = await readBody(req);
+    try { return json(res, 200, await (stresslab ? stresslab.run({ target: b.target, durationMs: Number(b.durationMs) || 3000, concurrency: Number(b.concurrency) || 64, rounds: Number(b.rounds) || 100, chaosRate: Number(b.chaosRate) || 0.15, load: b.load !== false, chaos: b.chaos !== false, scenario: b.scenario !== false }) : { ok: false, error: 'stresslab 未加载' })); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/capacity/board' && req.method === 'GET') {
+    try { return json(res, 200, capacityMod ? capacityMod.board() : { ok: false, error: 'capacity 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/capacity/plan' && req.method === 'POST') {
+    // 把 stresslab 结果折算成容量/韧性结论；body.stress = 上一步 run 的返回
+    const b = await readBody(req);
+    try { return json(res, 200, capacityMod ? capacityMod.plan(b.stress || null) : { ok: false, error: 'capacity 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
   // ===== 游戏开发全流程（自然语言 → 策划 → 代码 → 自检 → 成品 → 微调）=====
