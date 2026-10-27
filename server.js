@@ -57,7 +57,12 @@ const money = require('./core/money');
 const payout = require('./core/payout');
 const deliberation = require('./core/deliberation');
 const leadgen = require('./core/leadgen');
-require('./core/leadgen-icp-extra').register(leadgen); // 新增 ICP 细分（增量·幂等·不改 live 路由已有 4 类）
+require('./core/leadgen-icp-extra').register(leadgen);
+// 赚钱营销/客服聚合层（增量·只读·缺任一模块不影响主进程）：
+// revenue-ops=赚钱作战台 / conversion-engine=试用→付费 / cs-sla=客服SLA待命+沉默挽回
+const revenueOps = (function () { try { return require('./core/revenue-ops'); } catch (e) { console.error('[revenue-ops] load fail:', e.message); return null; } })();
+const conversionEngine = (function () { try { return require('./core/conversion-engine'); } catch (e) { console.error('[conversion-engine] load fail:', e.message); return null; } })();
+const csSla = (function () { try { return require('./core/cs-sla'); } catch (e) { console.error('[cs-sla] load fail:', e.message); return null; } })(); // 新增 ICP 细分（增量·幂等·不改 live 路由已有 4 类）
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 
@@ -1052,6 +1057,37 @@ async function handle(req, res) {
   if (p === '/v1/gtm/diagnose' && req.method === 'GET') {
     // 诚实体检：漏斗哪一环断了（用真实数据说话，不自我安慰）
     try { return json(res, 200, require('./core/gtm').diagnose()); } catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 赚钱作战台 · 营销获客 + 客服成交（聚合层·只读诊断·offer/工单草稿均人工确认）=====
+  if (p === '/v1/revenue-ops/board' && req.method === 'GET') {
+    try { return json(res, 200, revenueOps ? revenueOps.board() : { ok: false, error: 'revenue-ops 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/revenue-ops/actions' && req.method === 'GET') {
+    try { return json(res, 200, revenueOps ? revenueOps.todaysActions() : { ok: false, error: 'revenue-ops 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/conversion/board' && req.method === 'GET') {
+    try { return json(res, 200, conversionEngine ? conversionEngine.board() : { ok: false, error: 'conversion-engine 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/conversion/queue' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, conversionEngine ? conversionEngine.queue(Number(b.limit) || 10) : { ok: false, error: 'conversion-engine 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/cs/standby' && req.method === 'GET') {
+    try { return json(res, 200, csSla ? csSla.standby() : { ok: false, error: 'cs-sla 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/cs/board' && req.method === 'GET') {
+    try { return json(res, 200, csSla ? csSla.board() : { ok: false, error: 'cs-sla 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/cs/retention/queue' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, csSla ? csSla.queue(Number(b.limit) || 10) : { ok: false, error: 'cs-sla 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
   }
   // ===== 游戏开发全流程（自然语言 → 策划 → 代码 → 自检 → 成品 → 微调）=====
   if (p === '/v1/game/engines' && req.method === 'GET') {
