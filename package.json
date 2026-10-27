@@ -5,7 +5,7 @@
   "description": "丙大山AI Agent - 智能对话·决策中心·组织大脑·项目管理·审计日志·系统设置",
   "type": "commonjs",
   "main": "electron/main.cjs",
-  "author": "BingDashan",
+  "author": {"name": "BingDashan", "email": "dev@bingdashan.ai"},
   "scripts": {
     "start": "electron .",
     "mcp": "node mcp-server.js",
@@ -114,6 +114,7 @@
       "title": "丙大山AI ${version}"
     },
     "linux": {
+      "maintainer": "BingDashan <dev@bingdashan.ai>",
       "icon": "web/icons/icon-512.png",
       "category": "Office",
       "synopsis": "丙大山AI Agent",
