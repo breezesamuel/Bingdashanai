@@ -2,9 +2,93 @@
   "product": "BingDashanAI",
   "version": "2026.0.3",
   "tag": "v2026.0.3",
-  "generatedAt": "2026-10-26T06:30:52.164Z",
+  "generatedAt": "2026-10-27T06:32:40.302Z",
   "note": "本清单由 scripts/make-release.js 依据**真实存在的文件**生成；size/sha256 均为实测。published=false 表示已构建但未配置下载地址。",
   "artifacts": [
+    {
+      "platform": "android",
+      "arch": "universal",
+      "kind": "apk",
+      "label": "Android 安装包（APK）",
+      "file": "BingDashanAI-2026.0.3-android-universal.apk",
+      "size": 95481396,
+      "sha256": "c72c15e7aed033b1deb3af28ed925ebd671e82c03b3afb5ff0760d563d7a966d",
+      "built": "2026-10-27T06:32:39.303Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-android-universal.apk",
+      "published": true
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "kind": "deb",
+      "label": "Debian/Ubuntu 安装包（.deb）",
+      "file": "BingDashanAI-2026.0.3-linux-amd64.deb",
+      "size": 81696244,
+      "sha256": "c9a52514e6d047bc4e1bb0719d05784b598d37f05ce0e6a0d2f58b298fea1366",
+      "built": "2026-10-27T06:32:29.246Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-linux-amd64.deb",
+      "published": true
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "kind": "appimage",
+      "label": "Linux 免安装包（AppImage）",
+      "file": "BingDashanAI-2026.0.3-linux-x86_64.AppImage",
+      "size": 118371412,
+      "sha256": "9d1b4203a76e1bbb564065104da60f1da007dd6a95a818a480baaf52c8cfb5df",
+      "built": "2026-10-27T06:32:31.717Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-linux-x86_64.AppImage",
+      "published": true
+    },
+    {
+      "platform": "macos",
+      "arch": "arm64",
+      "kind": "dmg",
+      "label": "macOS 磁盘镜像（.dmg）",
+      "file": "BingDashanAI-2026.0.3-mac-arm64.dmg",
+      "size": 108358602,
+      "sha256": "75df935e61951d2ddfd70137c406e1b6577a0e86526fb9a0e4fbe43f1fcfc1d2",
+      "built": "2026-10-27T06:32:30.107Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-mac-arm64.dmg",
+      "published": true
+    },
+    {
+      "platform": "macos",
+      "arch": "arm64",
+      "kind": "zip",
+      "label": "macOS 免安装包（.zip）",
+      "file": "BingDashanAI-2026.0.3-mac-arm64.zip",
+      "size": 104587287,
+      "sha256": "a7d4830720c6a650d2b1381f7649ffd67600d5a5d8b5f96ff07b0d9a5e4366af",
+      "built": "2026-10-27T06:32:32.064Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-mac-arm64.zip",
+      "published": true
+    },
+    {
+      "platform": "macos",
+      "arch": "x64",
+      "kind": "dmg",
+      "label": "macOS 磁盘镜像（.dmg）",
+      "file": "BingDashanAI-2026.0.3-mac-x64.dmg",
+      "size": 112968163,
+      "sha256": "d6df293833ab31deb758b12c589ba58214df788090804604c37c0bb93efa6812",
+      "built": "2026-10-27T06:32:34.377Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-mac-x64.dmg",
+      "published": true
+    },
+    {
+      "platform": "macos",
+      "arch": "x64",
+      "kind": "zip",
+      "label": "macOS 免安装包（.zip）",
+      "file": "BingDashanAI-2026.0.3-mac-x64.zip",
+      "size": 109214480,
+      "sha256": "eac892780287548e1bc4fbee6923c2bb75cf1493d923e1ad3b4152aef5cbb812",
+      "built": "2026-10-27T06:32:36.093Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-mac-x64.zip",
+      "published": true
+    },
     {
       "platform": "windows",
       "arch": "x64",
@@ -13,24 +97,12 @@
       "file": "BingDashanAI-2026.0.3-win-x64.exe",
       "size": 88665389,
       "sha256": "536676111673763690798f8baea4a33ac6c3ef8c23f95bb92df8e0f36b56286e",
-      "built": "2026-10-26T06:26:43.414Z",
-      "url": "/downloads/BingDashanAI-2026.0.3-win-x64.exe",
+      "built": "2026-10-27T06:32:37.393Z",
+      "url": "https://github.com/breezesamuel/Bingdashanai/releases/download/v2026.0.3/BingDashanAI-2026.0.3-win-x64.exe",
       "published": true
     }
   ],
   "unavailable": [
-    {
-      "platform": "macos",
-      "reason": "macOS 安装包必须在 Mac 上构建（需 Apple 账号做签名/公证）；见 .github/workflows/build-desktop.yml 的 macos 任务"
-    },
-    {
-      "platform": "linux",
-      "reason": "Linux 产物在 Linux 上构建（AppImage/deb）"
-    },
-    {
-      "platform": "android",
-      "reason": "Android APK 需 Android SDK 构建；没有 APK 时可先用 PWA 免商店安装（见下载页）"
-    },
     {
       "platform": "ios",
       "reason": "iOS 原生包需 Mac + Xcode + Apple 开发者账号；现阶段请用 PWA（Safari → 添加到主屏幕）"
