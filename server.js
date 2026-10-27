@@ -63,6 +63,10 @@ require('./core/leadgen-icp-extra').register(leadgen);
 const revenueOps = (function () { try { return require('./core/revenue-ops'); } catch (e) { console.error('[revenue-ops] load fail:', e.message); return null; } })();
 const conversionEngine = (function () { try { return require('./core/conversion-engine'); } catch (e) { console.error('[conversion-engine] load fail:', e.message); return null; } })();
 const csSla = (function () { try { return require('./core/cs-sla'); } catch (e) { console.error('[cs-sla] load fail:', e.message); return null; } })(); // 新增 ICP 细分（增量·幂等·不改 live 路由已有 4 类）
+// 运营三层（增量·try/catch 容错·缺任一不影响主进程）：试用转正 / 合规合伙人招募 / 假账审计清除
+const trialConversion = (function () { try { return require('./core/trial-conversion'); } catch (e) { console.error('[trial-conversion] load fail:', e.message); return null; } })();
+const partnerRecruit = (function () { try { return require('./core/partner-recruit'); } catch (e) { console.error('[partner-recruit] load fail:', e.message); return null; } })();
+const ledgerClean = (function () { try { return require('./core/ledger-clean'); } catch (e) { console.error('[ledger-clean] load fail:', e.message); return null; } })();
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 
@@ -1087,6 +1091,54 @@ async function handle(req, res) {
   if (p === '/v1/cs/retention/queue' && req.method === 'POST') {
     const b = await readBody(req);
     try { return json(res, 200, csSla ? csSla.queue(Number(b.limit) || 10) : { ok: false, error: 'cs-sla 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 试用转正 / 合伙人招募 / 假账清除（运营三层·清除默认 dry-run·转正/招募人工确认）=====
+  if (p === '/v1/trial-conversion/board' && req.method === 'GET') {
+    try { return json(res, 200, trialConversion ? trialConversion.board() : { ok: false, error: 'trial-conversion 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/trial-conversion/grant' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, trialConversion ? trialConversion.grantAll() : { ok: false, error: 'trial-conversion 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/partner-recruit/board' && req.method === 'GET') {
+    try { return json(res, 200, partnerRecruit ? partnerRecruit.recruitBoard() : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/partner-recruit/landing' && req.method === 'GET') {
+    try { return json(res, 200, partnerRecruit ? partnerRecruit.recruitLanding() : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/partner-recruit/referral-code' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, partnerRecruit ? partnerRecruit.issueReferralCode(String(b.name || '')) : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/ledger/audit' && req.method === 'GET') {
+    try { return json(res, 200, ledgerClean ? ledgerClean.auditOnly() : { ok: false, error: 'ledger-clean 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/ledger/purge-preview' && req.method === 'GET') {
+    try { return json(res, 200, ledgerClean ? ledgerClean.purgeSelfTest({}) : { ok: false, error: 'ledger-clean 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/ledger/purge' && req.method === 'POST') {
+    // 清除假账：默认 dry-run；body.execute=true 且先 preview 命中数一致才真删（备份+审计）
+    const b = await readBody(req);
+    try { return json(res, 200, ledgerClean ? ledgerClean.purgeSelfTest({ execute: b.execute === true }) : { ok: false, error: 'ledger-clean 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/ledger/writeoff-stale' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, ledgerClean ? ledgerClean.writeoffStalePending({ hours: Number(b.hours) || 24, execute: b.execute === true, reason: b.reason }) : { ok: false, error: 'ledger-clean 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/ledger/clean' && req.method === 'POST') {
+    // 综合：默认 dry-run；execute=true 才清假账+核销真挂账
+    const b = await readBody(req);
+    try { return json(res, 200, ledgerClean ? ledgerClean.cleanAll({ hours: Number(b.hours) || 24, execute: b.execute === true }) : { ok: false, error: 'ledger-clean 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
   // ===== 游戏开发全流程（自然语言 → 策划 → 代码 → 自检 → 成品 → 微调）=====
