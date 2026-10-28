@@ -75,6 +75,8 @@ const stresslab = (function () { try { return require('./core/stresslab'); } cat
 const capacityMod = (function () { try { return require('./core/capacity'); } catch (e) { console.error('[capacity] load fail:', e.message); return null; } })();
 // 智能问数（ChatBI-lite：NL→意图→现成聚合器，只读不编数）
 const dataq = (function () { try { return require('./core/dataq'); } catch (e) { console.error('[dataq] load fail:', e.message); return null; } })();
+// 通用智能问数（Text-to-SQL-lite：LLM→受限查询计划→反幻觉闸→只读执行；无 LLM 回落 dataq）
+const dataqSql = (function () { try { return require('./core/dataq-sql'); } catch (e) { console.error('[dataq-sql] load fail:', e.message); return null; } })();
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 
@@ -1188,6 +1190,22 @@ async function handle(req, res) {
   if (p === '/v1/dataq/ask' && req.method === 'POST') {
     const b = await readBody(req);
     try { return json(res, 200, dataq ? dataq.ask(String(b.question || '')) : { ok: false, error: 'dataq 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 通用智能问数（Text-to-SQL-lite；LLM 生成受限查询计划→反幻觉闸→只读执行；无 LLM 回落 dataq）=====
+  if (p === '/v1/dataq-sql/board' && req.method === 'GET') {
+    try { return json(res, 200, dataqSql ? dataqSql.board() : { ok: false, error: 'dataq-sql 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/dataq-sql/ask' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, dataqSql ? await dataqSql.ask(String(b.question || ''), { noLlm: b.noLlm === true }) : { ok: false, error: 'dataq-sql 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/dataq-sql/execute' && req.method === 'POST') {
+    // 直接执行一个受信任的查询计划（运营/前端已校验场景）；仍过反幻觉闸，只读
+    const b = await readBody(req);
+    try { return json(res, 200, dataqSql ? dataqSql.execute(b.plan || {}) : { ok: false, error: 'dataq-sql 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
   // ===== 游戏开发全流程（自然语言 → 策划 → 代码 → 自检 → 成品 → 微调）=====
