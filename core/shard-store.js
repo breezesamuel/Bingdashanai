@@ -184,6 +184,7 @@ function createShardStore(dataDir, opt) {
       acquireLock();
       try {
         atomicWrite(path.join(SHARD_DIR, 'settings.json'), JSON.stringify(settings, null, 2));
+        walCheckpoint('settings');   // settings 也 checkpoint（防 WAL 行不收敛反复重放）
       } finally { releaseLock(); }
       return;
     }
@@ -201,13 +202,90 @@ function createShardStore(dataDir, opt) {
       let st = null; try { st = fs.statSync(file); } catch (e) {}
       fp.set(key, st ? { mtimeMs: st.mtimeMs, size: st.size } : null);
       localDirty.delete(key);
+      walCheckpoint(key);   // 该集合已 durable：剪掉它的 WAL 行（其余 key 的行留待各自 checkpoint）
     } finally { releaseLock(); }
   }
 
-  // WAL（可选，生产开）：写前记 op，崩溃后可回放
-  function wal(op, key) {
+  // ---- WAL（可选，生产开）：durable-first 崩溃恢复 ----
+  // 契约：每个业务变更前先 append 一条 op 行（含完整 payload），再改内存；
+  // 集合落盘成功后 checkpoint（剪掉该 key 的行）；进程崩溃时新实例启动自动
+  // replayWal() 按行幂等重放未落盘操作（push/pushMany 按 id 去重，update/remove 天然幂等）。
+  // 半行（进程死在 append 中途）JSON.parse 失败 → 跳过该行（宁可跳，不可应用半行）。
+  // 说明：audit 是派生日志不记 WAL；崩溃恢复后业务行完整，audit 可能有 gap（可接受，留痕在恢复报告）。
+  function walOp(key, entry) {
     if (!walEnabled) return;
-    try { fs.appendFileSync(WAL_PATH, JSON.stringify({ op, key, at: Date.now() }) + '\n'); } catch (e) {}
+    try { fs.appendFileSync(WAL_PATH, JSON.stringify(Object.assign({ k: key, at: Date.now() }, entry)) + '\n'); }
+    catch (e) { persistErrors.push({ key, error: 'WAL append 失败：' + e.message, at: Date.now() }); }
+  }
+  function walCheckpoint(key) {
+    if (!walEnabled) return;
+    try {
+      const lines = fs.readFileSync(WAL_PATH, 'utf8').split('\n').filter(Boolean);
+      const keep = lines.filter(l => { try { return JSON.parse(l).k !== key; } catch (e) { return true; } });
+      if (keep.length === 0) { try { fs.unlinkSync(WAL_PATH); } catch (e) {} }
+      else atomicWrite(WAL_PATH, keep.join('\n') + '\n');
+    } catch (e) { /* checkpoint 失败不影响主流程：行会随下次 checkpoint/重启 replay 幂等收敛 */ }
+  }
+  function applyWalOp(e) {
+    switch (e.op) {
+      case 'push': {
+        const arr = top[e.k];
+        const r = e.v;
+        if (r && r.id && !arr.some(x => x.id === r.id)) arr.push(r);
+        break;
+      }
+      case 'pushMany': {
+        const arr = top[e.k];
+        const list = Array.isArray(e.v) ? e.v : [];
+        const ids = new Set(arr.map(x => x && x.id));
+        for (const r of list) { if (r && r.id && !ids.has(r.id)) { arr.push(r); ids.add(r.id); } }
+        break;
+      }
+      case 'update': {
+        const arr = top[e.k];
+        const i = arr.findIndex(x => x.id === e.v.id);
+        if (i >= 0) arr[i] = Object.assign({}, arr[i], e.v.patch);
+        break;
+      }
+      case 'updateMany': {
+        const arr = top[e.k];
+        for (const p of (Array.isArray(e.v) ? e.v : [])) {
+          if (!p || !p.id) continue;
+          const i = arr.findIndex(x => x.id === p.id);
+          if (i >= 0) arr[i] = Object.assign({}, arr[i], p);
+        }
+        break;
+      }
+      case 'remove': {
+        const arr = top[e.k];
+        const i = arr.findIndex(x => x.id === e.v.id);
+        if (i >= 0) arr.splice(i, 1);
+        break;
+      }
+      case 'set': { ensureSettings(); if (e.v && e.v.k != null) settings[e.v.k] = e.v.v; break; }
+      case 'unset': { ensureSettings(); if (e.v && e.v.k != null) delete settings[e.v.k]; break; }
+      default: break; // 未知 op 跳过（前向兼容）
+    }
+  }
+  // 启动自动调用：回放未 checkpoint 的 op；返回 { replayed, skippedCorrupt }
+  function replayWal() {
+    if (!walEnabled) return { replayed: 0, skippedCorrupt: 0 };
+    let lines = [];
+    try { lines = fs.readFileSync(WAL_PATH, 'utf8').split('\n').filter(Boolean); } catch (e) { return { replayed: 0, skippedCorrupt: 0 }; }
+    let n = 0, corrupt = 0;
+    for (const line of lines) {
+      let e;
+      try { e = JSON.parse(line); } catch (err) { corrupt++; continue; }
+      applyWalOp(e);
+      n++;
+    }
+    if (n > 0) {
+      // 全部重放进内存：WAL 清空，业务集合立即落盘（防再次崩溃再丢）；settings 若被 set/unset 过也一并落盘
+      try { fs.unlinkSync(WAL_PATH); } catch (e2) {}
+      for (const k of Array.from(loaded)) { try { persistKey(k); } catch (e) { persistErrors.push({ key: k, error: 'replay persist 失败：' + e.message, at: Date.now() }); } }
+      if (settings) { try { persistKey('settings'); } catch (e) { persistErrors.push({ key: 'settings', error: 'replay persist 失败：' + e.message, at: Date.now() }); } }
+    }
+    return { replayed: n, skippedCorrupt: corrupt };
   }
 
   // ---- 顶层 Proxy：db[key] 读写都走 mem ----
@@ -307,6 +385,7 @@ function createShardStore(dataDir, opt) {
   function push(key, item, action, detail) {
     const arr = top[key];
     const rec = Object.assign({ id: uid(), createdAt: Date.now() }, item);
+    walOp(key, { op: 'push', v: rec });          // durable-first：先记 WAL 再改内存
     arr.push(rec);
     mark(key);
     if (key !== 'audit') {
@@ -320,10 +399,9 @@ function createShardStore(dataDir, opt) {
   }
   function pushMany(key, items, action, detail) {
     const arr = top[key];
-    const recs = (Array.isArray(items) ? items : []).map(item => {
-      const rec = Object.assign({ id: uid(), createdAt: Date.now() }, item);
-      arr.push(rec); return rec;
-    });
+    const recs = (Array.isArray(items) ? items : []).map(item => Object.assign({ id: uid(), createdAt: Date.now() }, item));
+    if (recs.length) walOp(key, { op: 'pushMany', v: recs });   // durable-first：先记后改
+    for (const rec of recs) arr.push(rec);
     if (recs.length) {
       mark(key);
       const a = top.audit;
@@ -338,6 +416,7 @@ function createShardStore(dataDir, opt) {
     const arr = top[key];
     const i = arr.findIndex(x => x.id === id);
     if (i < 0) return null;
+    walOp(key, { op: 'update', v: { id, patch } });
     arr[i] = Object.assign({}, arr[i], patch, { updatedAt: Date.now() });
     mark(key); mark('audit');
     const a = top.audit;
@@ -350,6 +429,7 @@ function createShardStore(dataDir, opt) {
     const list = Array.isArray(patches) ? patches.filter(p => p && p.id) : [];
     if (!list.length) return [];
     const arr = top[key];
+    walOp(key, { op: 'updateMany', v: list });   // durable-first：先记后改（记录全量 patch，按 id 幂等）
     const byId = new Map(); arr.forEach(x => { if (x && x.id) byId.set(x.id, x); });
     const now = Date.now(); const out = [];
     list.forEach(p => {
@@ -371,6 +451,7 @@ function createShardStore(dataDir, opt) {
     const arr = top[key];
     const i = arr.findIndex(x => x.id === id);
     if (i < 0) return false;
+    walOp(key, { op: 'remove', v: { id } });
     arr.splice(i, 1);
     mark(key); mark('audit');
     const a = top.audit;
@@ -382,6 +463,7 @@ function createShardStore(dataDir, opt) {
   function getSetting(k) { ensureSettings(); return settings ? settings[k] : undefined; }
   function setSetting(k, v) {
     ensureSettings();
+    walOp('settings', { op: 'set', v: { k, v } });   // durable-first
     settings[k] = v;
     mark('settings');
     const a = top.audit;
@@ -394,6 +476,7 @@ function createShardStore(dataDir, opt) {
   function deleteSetting(k) {
     ensureSettings();
     if (!settings || !Object.prototype.hasOwnProperty.call(settings, k)) return false;
+    walOp('settings', { op: 'unset', v: { k } });     // durable-first
     delete settings[k];
     mark('settings');
     writeUnlessBatching(top);
@@ -416,11 +499,22 @@ function createShardStore(dataDir, opt) {
     return [head].concat(rows.map(r => cols.map(c => esc(typeof r[c] === 'object' ? JSON.stringify(r[c]) : r[c])).join(','))).join('\n');
   }
   const slowWrites = [];
+  // 启动自动回放：WAL 有未 checkpoint 行 → 幂等重放进内存并立即落盘（崩溃恢复核心）
+  let lastReplay = { replayed: 0, skippedCorrupt: 0 };
+  if (walEnabled) {
+    lastReplay = replayWal();
+    if (lastReplay.replayed > 0) {
+      try {
+        fs.appendFileSync(path.join(dataDir, 'recovery.log'),
+          new Date().toISOString() + ' shard-store 启动恢复：重放 ' + lastReplay.replayed + ' 条未落盘操作（跳过损坏行 ' + lastReplay.skippedCorrupt + '）' + '\n');
+      } catch (e) {}
+    }
+  }
   function stats() {
     return {
       engine: 'shard-store', collections: loaded.size, dataDir,
       wal: walEnabled, coalesce, pendingDirty: dirty.size, caps: CAPS,
-      persistErrors: persistErrors.length
+      persistErrors: persistErrors.length, lastReplay
     };
   }
 
@@ -429,7 +523,7 @@ function createShardStore(dataDir, opt) {
     getSetting, setSetting, deleteSetting, decisionStats, orgStats, toCsv, uid, stats, slowWrites,
     writeTracked,
     // Phase 2/3 扩展口
-    flush, coalesce, CAPS,
+    flush, coalesce, CAPS, replayWal, walOp, walCheckpoint,
     _internal: { mem, persistKey, top, lock: { acquireLock, releaseLock } },
     // 与 store.js 相同的常量导出（业务模块顶层可能引用）
     DB_PATH: path.join(dataDir, 'db.json'), DATA_DIR: dataDir, IN_ASAR: false,
