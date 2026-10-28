@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能问数 · 丙大山AI</title>
+<link rel="stylesheet" href="app.css">
+<script src="vendor/chart.umd.min.js"></script>
+<style>
+  body[data-theme="emerald"] { max-width: 860px; margin: 0 auto; padding: 24px 16px; }
+  .dq-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .dq-row { display: flex; gap: 10px; }
+  .dq-row input[type=text] { flex: 1; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; }
+  .dq-row button { padding: 10px 18px; background: #059669; color: #fff; border: 0; border-radius: 8px; font-size: 15px; cursor: pointer; }
+  .dq-row button:disabled { opacity: .5; cursor: wait; }
+  .dq-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .dq-chip { padding: 5px 12px; border: 1px solid #cbd5e1; border-radius: 999px; font-size: 13px; cursor: pointer; background: #f8fafc; }
+  .dq-chip:hover { background: #d1fae5; border-color: #34d399; }
+  .dq-ans { font-size: 16px; line-height: 1.7; }
+  .dq-meta { color: #6b7280; font-size: 13px; margin-top: 8px; line-height: 1.6; }
+  .dq-src { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; margin-left: 8px; }
+  .dq-src.llm { background: #d1fae5; color: #065f46; }
+  .dq-src.fallback { background: #fde68a; color: #92400e; }
+  .dq-src.rejected { background: #fee2e2; color: #991b1b; }
+  .dq-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+  .dq-table th, .dq-table td { border-bottom: 1px solid #e5e7eb; padding: 7px 10px; text-align: left; }
+  .dq-table th { background: #f9fafb; color: #374151; }
+  .dq-chart { width: 100%; height: 260px; margin-top: 12px; }
+  .dq-metric { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .dq-metric .m { flex: 1; min-width: 120px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 12px; }
+  .dq-metric .m .v { font-size: 22px; font-weight: 700; color: #065f46; }
+  .dq-metric .m .k { font-size: 12px; color: #6b7280; }
+  .dq-insight { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 14px; line-height: 1.8; }
+  .dq-insight b { color: #1d4ed8; }
+  .dq-honest { color: #9ca3af; font-size: 12px; margin-top: 14px; line-height: 1.6; }
+  .dq-mode { font-size: 12px; color: #6b7280; margin-top: 8px; }
+</style>
+</head>
+<body data-theme="emerald">
+<h2 style="margin:0 0 4px">智能问数</h2>
+<div style="color:#6b7280;font-size:13px;margin-bottom:16px">自然语言问数据 → 受限查询计划（反幻觉闸）→ 只读执行 → 答案 + 图表 + 洞察。不编数、不改账。</div>
+
+<div class="dq-card">
+  <div class="dq-row">
+    <input type="text" id="dq-q" placeholder="例如：各套餐的收入合计 / 哪些线索卡在促单 / 最近 30 天活跃访客">
+    <button id="dq-go">问</button>
+  </div>
+  <div class="dq-chips" id="dq-chips"></div>
+  <div class="dq-mode">通用层（LLM 生成查询计划）· LLM 不可用或计划被反幻觉闸拒绝时，自动回落 12 个预设问法（橙标）。</div>
+</div>
+
+<div id="dq-result"></div>
+
+<div class="dq-honest">口径透明：每个结果标注 collection / 模式 / 过滤后行数 / 只读声明。图表为 Chart.js 渲染（同主站 vendor）。全程只调 /v1 只读路由，不写任何数据。</div>
+
+<script>
+(function () {
+  'use strict';
+  var CHIPS = [
+    { t: '营收', q: '营收怎么样' }, { t: '漏斗', q: '各阶段转化' },
+    { t: '粘性', q: '粘性留存如何' }, { t: '线索', q: '客户线索多少' },
+    { t: 'NRR', q: '复购 NRR' }, { t: '漏钱', q: '哪里漏钱' },
+    { t: '今日动作', q: '今天先做什么' }, { t: '合伙人', q: '合伙人几个' },
+    { t: '客服', q: '客服工单' }, { t: '试用', q: '试用未转正' },
+    { t: '压测', q: '压测瓶颈' }, { t: '存储', q: '存储引擎' }
+  ];
+  var chips = document.getElementById('dq-chips');
+  CHIPS.forEach(function (c) {
+    var el = document.createElement('span');
+    el.className = 'dq-chip'; el.textContent = c.t;
+    el.onclick = function () { document.getElementById('dq-q').value = c.q; ask(); };
+    chips.appendChild(el);
+  });
+  document.getElementById('dq-go').onclick = ask;
+  document.getElementById('dq-q').addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
+
+  var lastChart = null, lastMetric = null;
+  function destroyCharts() { if (lastChart) { lastChart.destroy(); lastChart = null; } if (lastMetric) { lastMetric.parentElement.remove(); lastMetric = null; } }
+  var esc = function (s) { var d = document.createElement('i'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+
+  function ask() {
+    var q = document.getElementById('dq-q').value.trim();
+    if (!q) return;
+    var btn = document.getElementById('dq-go');
+    btn.disabled = true; btn.textContent = '查询中…';
+    var box = document.getElementById('dq-result');
+    box.innerHTML = '<div class="dq-card dq-ans">…</div>';
+    fetch('/v1/dataq-sql/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { btn.disabled = false; btn.textContent = '问'; render(j, q); })
+      .catch(function (e) { btn.disabled = false; btn.textContent = '问'; box.innerHTML = '<div class="dq-card dq-ans">请求失败：' + esc(e.message) + '</div>'; });
+  }
+
+  function render(j, q) {
+    var box = document.getElementById('dq-result');
+    destroyCharts();
+    var src = j.source || 'fixed';
+    var srcLabel = src === 'llm' ? ('LLM 通道' + (j.llmProvider ? '·' + j.llmProvider : '')) : (src === 'fallback' ? '预设问法回落' : '预设问法');
+    var srcCls = src === 'llm' ? 'llm' : (j.reason && j.planRejected ? 'rejected' : 'fallback');
+    var html = '<div class="dq-card">';
+    html += '<div class="dq-ans">「' + esc(q) + '」<span class="dq-src ' + srcCls + '">' + esc(srcLabel) + '</span></div>';
+    html += '<div class="dq-meta">' + esc(j.answer || '') + '</div>';
+    if (j.口径) html += '<div class="dq-meta">口径：' + esc(j.口径) + '</div>';
+    if (j.reason) html += '<div class="dq-meta" style="color:#92400e">说明：' + esc(j.reason) + '</div>';
+    html += '</div>';
+
+    // 图表（bar 先出 canvas，metric 出卡片，之后挂表格+洞察）
+    var chartHtml = '';
+    if (j.chart) {
+      if (j.chart.type === 'bar') {
+        chartHtml = '<div class="dq-card"><div class="dq-chart"><canvas id="dq-cv"></canvas></div>' + tableHtml(j.result || []) + '</div>';
+      } else if (j.chart.type === 'metric') {
+        var m = '<div class="dq-metric">';
+        (j.chart.items || []).forEach(function (it) { m += '<div class="m"><div class="v">' + esc(it.value) + '</div><div class="k">' + esc(it.label) + '</div></div>'; });
+        m += '</div>';
+        chartHtml = '<div class="dq-card">' + m + '</div>';
+      }
+    }
+    var bodyHtml = chartHtml + (j.chart ? '' : (Array.isArray(j.result) && j.result.length && src === 'llm' ? tableHtml(j.result) : '')) + insightHtml(q, j) + html;
+    box.innerHTML = bodyHtml;
+    if (j.chart && j.chart.type === 'bar') {
+      var cv = document.getElementById('dq-cv');
+      if (cv && window.Chart) lastChart = new Chart(cv.getContext('2d'), { type: 'bar', data: j.chart.data, options: j.chart.options });
+      if (j.chart.type === 'metric') { lastMetric = box.querySelector('.dq-metric'); }
+    }
+  }
+
+  function tableHtml(rows) {
+    if (!rows || !rows.length) return '';
+    var keys = [];
+    rows.slice(0, 8).forEach(function (r) { Object.keys(r || {}).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+    if (keys.length > 8) keys = keys.slice(0, 8);
+    var h = '<table class="dq-table"><thead><tr>' + keys.map(function (k) { return '<th>' + esc(k) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    rows.slice(0, 12).forEach(function (r) { h += '<tr>' + keys.map(function (k) { var v = r ? r[k] : null; return '<td>' + esc(typeof v === 'object' ? JSON.stringify(v) : v) + '</td>'; }).join('') + '</tr>'; });
+    h += '</tbody></table>';
+    if (rows.length > 12) h += '<div class="dq-meta">（共 ' + rows.length + ' 行，展示前 12）</div>';
+    return h;
+  }
+
+  // 智能分析：基于 result 的确定性计算（占比/Top/异常），不编数
+  function insightHtml(q, j) {
+    var rs = Array.isArray(j.result) ? j.result : [];
+    if (rs.length < 2) return '';
+    var items = [];
+    if (j.chart && j.chart.type === 'bar' && rs.every(function (r) { return 'group' in r && 'value' in r; })) {
+      var total = rs.reduce(function (s, r) { var v = Number(r.value); return s + (isFinite(v) ? v : 0); }, 0);
+      var top = rs.slice().sort(function (a, b) { return Number(b.value) - Number(a.value); }).slice(0, 3);
+      if (total > 0) {
+        items.push('最大项 <b>' + esc(top[0].group) + '</b>，占比 ' + (Math.round(Number(top[0].value) / total * 1000) / 10) + '%');
+        var tail = rs[rs.length - 1];
+        if (tail && Number(tail.value) < total * 0.05) items.push('长尾组 ' + esc(tail.group) + ' 占比不足 5%，可合并或单列观察');
+      }
+    } else {
+      var nums = rs.map(function (r) { return Number(r.value); }).filter(isFinite);
+      if (nums.length >= 2) {
+        var mn = Math.min.apply(null, nums), mx = Math.max.apply(null, nums);
+        if (mx > 0 && mx / Math.max(1, mn) > 10) items.push('组间差距 >10×（' + mn + ' ~ ' + mx + '），先核查头部是否异常');
+      }
+    }
+    if (j.resultCount != null && j.totalAfterFilter != null && j.resultCount < j.totalAfterFilter) items.push('只展示 ' + j.resultCount + ' / ' + j.totalAfterFilter + ' 行，完整口径见「口径」行');
+    if (!items.length) return '';
+    return '<div class="dq-card"><div class="dq-insight"><b>洞察</b>：' + items.join('；') + '。可追问：对「' + esc(q) + '」按维度拆细、或对比上一周期同口径。</div></div>';
+  }
+
+  // 首屏示例（固定问法，零 LLM 成本）
+  fetch('/v1/dataq/ask?q=' + encodeURIComponent('各阶段转化')).then(function (r) { return r.json(); }).then(function (j) { if (j && j.ok) render(j, '各阶段转化（示例）'); }).catch(function () {});
+})();
+</script>
+</body>
+</html>
