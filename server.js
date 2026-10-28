@@ -16,6 +16,9 @@ const path = require('path');
 const fs = require('fs');
 const { URL } = require('url');
 const qs = require('querystring');
+// 存储引擎门控（Phase 3 切读开关）：默认 native 零行为变化；
+// BINGDASHAN_STORE_ENGINE=shard 时在此注入分片引擎（必须先于任何 core 模块加载）。
+require('./core/storage-engine').init();
 
 const providers = require('./core/providers');
 const store = require('./core/store');
@@ -70,6 +73,8 @@ const ledgerClean = (function () { try { return require('./core/ledger-clean'); 
 // 极限测试 + 容量（stresslab 并发压测/混沌/业务场景 · capacity 容量规划/韧性看板；只打隔离数据，不动生产）
 const stresslab = (function () { try { return require('./core/stresslab'); } catch (e) { console.error('[stresslab] load fail:', e.message); return null; } })();
 const capacityMod = (function () { try { return require('./core/capacity'); } catch (e) { console.error('[capacity] load fail:', e.message); return null; } })();
+// 智能问数（ChatBI-lite：NL→意图→现成聚合器，只读不编数）
+const dataq = (function () { try { return require('./core/dataq'); } catch (e) { console.error('[dataq] load fail:', e.message); return null; } })();
 const agentcenter = require('./core/agentcenter');
 const geo = require('./core/geo');
 
@@ -1163,6 +1168,26 @@ async function handle(req, res) {
     // 把 stresslab 结果折算成容量/韧性结论；body.stress = 上一步 run 的返回
     const b = await readBody(req);
     try { return json(res, 200, capacityMod ? capacityMod.plan(b.stress || null) : { ok: false, error: 'capacity 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 存储引擎门控（只读面板；切换/同步走 CLI + env，不进 HTTP 防误触真实数据）=====
+  if (p === '/v1/storage-engine' && req.method === 'GET') {
+    try { return json(res, 200, require('./core/storage-engine').board()); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== 智能问数（NL→意图→聚合器，只读；chart 为 chart.js 配置前端可直接渲染）=====
+  if (p === '/v1/dataq/board' && req.method === 'GET') {
+    try { return json(res, 200, dataq ? dataq.board() : { ok: false, error: 'dataq 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/dataq/ask' && req.method === 'GET') {
+    const q = (u.searchParams.get('q') || '').trim();
+    try { return json(res, 200, dataq ? dataq.ask(q) : { ok: false, error: 'dataq 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/dataq/ask' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, dataq ? dataq.ask(String(b.question || '')) : { ok: false, error: 'dataq 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
   // ===== 游戏开发全流程（自然语言 → 策划 → 代码 → 自检 → 成品 → 微调）=====
