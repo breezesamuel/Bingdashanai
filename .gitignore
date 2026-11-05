@@ -25,4 +25,9 @@ app/*.zip
 app/*.AppImage
 app/*.deb
 tools/cliproxyapi/
-
+# 构建产物（CI 生成，不入 git；避免 release 混入旧版 exe）
+app/*.blockmap
+app/latest.yml
+app/builder-debug.yml
+web/downloads/*.exe
+web/downloads/*.apk
