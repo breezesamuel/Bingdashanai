@@ -2818,6 +2818,10 @@ async function handle(req, res) {
       return json(res, 200, Object.assign({ ok: true }, b, { idle: CM.idleMechanisms() }));
     } catch (e) { return err(res, 200, e.message); }
   }
+  // ===== 全量商业闭环总览（聚合 8 段管道 + 11 运营模块 + 台账体检，只读不编数）=====
+  if (p === '/v1/business-loop' && req.method === 'GET') {
+    try { return json(res, 200, require('./core/business-loop').board()); } catch (e) { return err(res, 200, e.message); }
+  }
   // ===== 技能·收录（动态外部模块写入 db）=====
   if (p === '/v1/skills/inject' && req.method === 'POST') {
     const b = await readBody(req);
