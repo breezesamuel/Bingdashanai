@@ -847,7 +847,16 @@ const CAPS = [
       const hist = s.history.slice(0, 8).map(h => '  #' + h.roundId + ' ' + (h.ok ? 'OK' : 'FAIL') + ' ' + h.pass + '/' + h.fail + ' ' + h.dur + 'ms').join('\n');
       return '16 流全链路编排器：间隔 ' + s.intervalMs + 'ms · 当前轮次 ' + s.roundId + '\n' + last + '\n最近轮次：\n' + (hist || '  （无）') + '\n说明：每流≤2s、全轮≤30s，失败记证据不阻断。';
     }
-  }
+  },
+    {
+      id: 'cap.anomalyscan', name: '数据质量与统计异常扫描', kw: ['异常检测', '数据质量', '数据异常', '尖峰', '误报', '阈值校准', '集合质量', '哪条数据不对', '统计异常'],
+      run() {
+        const A = require('./anomaly-scan');
+        const s = A.status();
+        const last = (typeof s.lastScan === 'object' && s.lastScan) ? ('最近扫描：findings=' + s.lastScan.findings + ' notEnough=' + s.lastScan.notEnough + ' normal=' + s.lastScan.normal + ' k=' + s.lastScan.k) : '尚未运行过扫描（GET /v1/anomaly/scan 触发）';
+        return '异常检测与数据质量校准（当前 k=' + s.k + '，IQR 倍数=' + s.iqrMult + '，误报率=' + s.fpRate + '%，已判 review ' + (s.fp + s.tp) + ' 条）：' + last + '\n说明：' + s.note + '\n校准：POST /v1/anomaly/review {fkey, verdict: tp|fp}；曲线 GET /v1/anomaly/calibration；完整质量明细 GET /v1/anomaly/scan。';
+      }
+    },
 ];
 
 // —— 动态能力：把注册表里「已验证并采纳」的模块函数接进对话路由 ——

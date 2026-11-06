@@ -59,6 +59,8 @@ check('outreach.sendRaw 已导出（webhook 主链路）', typeof outreach.sendR
 // ---- 4) 定向：新增 3 个去孤岛 capability 已注册 ----
 const ids = (caps || []).map(x => x.id);
 check('cap.maturity / cap.dataqsql / cap.workflow16 已注册', ids.includes('cap.maturity') && ids.includes('cap.dataqsql') && ids.includes('cap.workflow16'), 'found=' + ['cap.maturity','cap.dataqsql','cap.workflow16'].filter(x => ids.includes(x)).join(','));
+check('cap.anomalyscan 已注册 + anomaly-scan 可加载', ids.includes('cap.anomalyscan') && (() => { try { const A = require('../core/anomaly-scan'); return typeof A.scan === 'function' && typeof A.status === 'function' && typeof A.review === 'function' && typeof A.calibration === 'function' && typeof A.runOnce === 'function'; } catch (e) { return false; } })(), 'anomaly-scan 导出缺失');
+check('anomaly-scan IQR 稀疏序列判定 + k 映射（纯函数，不依赖数据）', (() => { try { const I = require('../core/anomaly-scan')._internal; const hit = I.iqrDetect([0, 0, 0, 0, 0, 0, 10], 1.5); const flat = I.iqrDetect([5, 5, 5, 5, 5, 5, 5], 1.5); return hit.hit === true && hit.dir === 'spike' && flat.hit === false && I.kToIqrMult(3) === 1.5 && I.kToIqrMult(6) === 2.5; } catch (e) { return false; } })(), 'IQR 判定或 k 映射异常');
 
 console.log('\n=== ' + (failed ? failed + ' FAILED' : 'ALL PASS') + ' ===');
 process.exit(failed ? 1 : 0);

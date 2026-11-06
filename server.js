@@ -69,6 +69,7 @@ const csSla = (function () { try { return require('./core/cs-sla'); } catch (e) 
 // 运营三层（增量·try/catch 容错·缺任一不影响主进程）：试用转正 / 合规合伙人招募 / 假账审计清除
 const trialConversion = (function () { try { return require('./core/trial-conversion'); } catch (e) { console.error('[trial-conversion] load fail:', e.message); return null; } })();
 const partnerRecruit = (function () { try { return require('./core/partner-recruit'); } catch (e) { console.error('[partner-recruit] load fail:', e.message); return null; } })();
+const anomalyScan = (function () { try { return require('./core/anomaly-scan'); } catch (e) { console.error('[anomaly-scan] load fail:', e.message); return null; } })();
 const ledgerClean = (function () { try { return require('./core/ledger-clean'); } catch (e) { console.error('[ledger-clean] load fail:', e.message); return null; } })();
 // 极限测试 + 容量（stresslab 并发压测/混沌/业务场景 · capacity 容量规划/韧性看板；只打隔离数据，不动生产）
 const stresslab = (function () { try { return require('./core/stresslab'); } catch (e) { console.error('[stresslab] load fail:', e.message); return null; } })();
@@ -1155,6 +1156,23 @@ async function handle(req, res) {
   if (p === '/v1/partner-recruit/referral-code' && req.method === 'POST') {
     const b = await readBody(req);
     try { return json(res, 200, partnerRecruit ? partnerRecruit.issueReferralCode(String(b.name || '')) : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/anomaly/scan' && req.method === 'GET') {
+    try { return json(res, 200, anomalyScan ? anomalyScan.runOnce() : { ok: false, error: 'anomaly-scan 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/anomaly/status' && req.method === 'GET') {
+    try { return json(res, 200, anomalyScan ? anomalyScan.status() : { ok: false, error: 'anomaly-scan 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/anomaly/calibration' && req.method === 'GET') {
+    try { return json(res, 200, anomalyScan ? anomalyScan.calibration() : { ok: false, error: 'anomaly-scan 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/anomaly/review' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, anomalyScan ? anomalyScan.review(String(b.fkey || ''), String(b.verdict || '')) : { ok: false, error: 'anomaly-scan 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
   if (p === '/v1/ledger/audit' && req.method === 'GET') {
