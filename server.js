@@ -2824,6 +2824,13 @@ async function handle(req, res) {
   if (p === '/v1/business-loop' && req.method === 'GET') {
     try { return json(res, 200, require('./core/business-loop').board()); } catch (e) { return err(res, 200, e.message); }
   }
+  // ===== 免费额度聚合层（官方免费/体验端点 + 自配 Key 健康轮换·合规）=====
+  if (p === '/v1/free-tier/board' && req.method === 'GET') {
+    try { return json(res, 200, require('./core/free-tier').status()); } catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/free-tier/daily' && req.method === 'GET') {
+    try { return json(res, 200, require('./core/free-tier').dailyHealth()); } catch (e) { return err(res, 200, e.message); }
+  }
   // ===== Agent 可视化流程（借鉴 skill-flow-visualizer/transit/mermaid-skill 范式·零依赖 SVG + Mermaid 源码）=====
   if (p === '/v1/agent-flows' && req.method === 'GET') {
     try { return json(res, 200, require('./core/agent-flows').board()); } catch (e) { return err(res, 200, e.message); }

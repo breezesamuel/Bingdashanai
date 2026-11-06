@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>丙大山 Agent · 可视化流程（23 条）</title>
+<script src="/vendor/mermaid.min.js"></script>
 <style>
 :root{--ink:#104e41;--ink2:#5b7d72;--line:#0e7a5a;--bg:#fbfdfc;--amber:#b45309;--card:#fff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#1f2937;font:14px/1.55 system-ui,'Noto Sans SC',sans-serif}
@@ -31,6 +32,9 @@ header h1{margin:0;font-size:20px}header p{margin:6px 0 0;font-size:12px;color:#
 #ov .svgwrap{overflow-x:auto;border:1px solid #e5efe9;border-radius:10px;background:var(--bg);padding:8px;margin-bottom:14px}
 #ov .svgwrap svg{min-width:680px}
 #ov .mm{width:100%;min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace;background:#0f1f1a;color:#9fe6c8;border-radius:10px;padding:14px;white-space:pre}
+#ov .mm-wrap{background:#fff;border:1px solid #d7e6e0;border-radius:10px;padding:14px;overflow:auto;margin-bottom:14px;max-height:520px}
+#ov .mm-wrap svg{max-width:none;margin:auto;display:block}
+#ov .mm-toolbar{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .btn{border:1px solid var(--line);background:var(--line);color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px}
 .btn.ghost{background:#fff;color:var(--line)}
 .note{font-size:11px;color:var(--ink2);margin-top:10px}
@@ -49,7 +53,9 @@ header h1{margin:0;font-size:20px}header p{margin:6px 0 0;font-size:12px;color:#
 <div id="ov"><div class="box">
   <div class="hd"><h2 id="ov-t">流程</h2><button class="x" onclick="closeOv()">×</button></div>
   <div class="body">
-    <div class="svgwrap" id="ov-svg"></div>
+    <div class="mm-toolbar" id="ov-mmbtns" style="display:none"><button class="btn" data-act="zoom-in">放大</button><button class="btn" data-act="zoom-out">缩小</button><button class="btn" data-act="zoom-reset">重置</button><button class="btn" data-act="view-src">源码</button><span class="note">交互式 Mermaid 流程图（本地渲染·点击看源码·滚轮缩放）</span></div>
+<div class="mm-wrap" id="ov-mmview" style="display:none"></div>
+<div class="svgwrap" id="ov-svg"></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="btn ghost" onclick="copyMM()">复制 Mermaid 源码</span><span class="note">拷进 mermaid.live / 任意渲染器即出图；flowchart 类已给内联 SVG</span></div>
     <pre class="mm" id="ov-mm"></pre>
   </div>
@@ -76,12 +82,44 @@ function renderGrid(cat){
 async function openOv(id){
   const r=await fetch('/v1/agent-flows/render?id='+encodeURIComponent(id));const j=await r.json();
   document.getElementById('ov-t').textContent=j.flow.label+'（'+j.flow.id+'）';
-  document.getElementById('ov-svg').innerHTML=j.svg?'<div class="note" style="padding:4px 8px">'+j.flow.desc+'</div>'+j.svg:'<div class="note">'+j.svgNote+'</div>';
+  // mermaid 优先；不可用时回退零依赖 SVG
+  var mmOk = renderMermaid(document.getElementById('ov-mmview'), j.mermaid);
+  document.getElementById('ov-mmview').style.display = mmOk ? 'block' : 'none';
+  document.getElementById('ov-mmbtns').style.display = mmOk ? 'flex' : 'none';
+  document.getElementById('ov-svg').style.display = mmOk ? 'none' : 'block';
+  document.getElementById('ov-svg').innerHTML = j.svg ? '<div class="note" style="padding:4px 8px">' + j.flow.desc + '</div>' + j.svg : '<div class="note">' + j.svgNote + '</div>';
+  document.getElementById('ov-mm').textContent = '```mermaid\n' + j.mermaid + '\n```';
   document.getElementById('ov-mm').textContent='```mermaid\n'+j.mermaid+'\n```';
   document.getElementById('ov').classList.add('show');
 }
 function closeOv(){document.getElementById('ov').classList.remove('show');}
 function copyMM(){navigator.clipboard.writeText(document.getElementById('ov-mm').textContent).then(()=>{}).catch(()=>{});}
+// mermaid 交互渲染（本地 vendor；失败则回退零依赖 SVG）
+let mermaidReady=false, mm=null;
+(async function initMermaid(){
+  try{
+    // 本地 vendor/mermaid.min.js（10.9.1）已由 head 引入；若网络/文件缺失 window.mermaid 未定义 → 走兜底
+    if(!window.mermaid){ console.warn('mermaid vendor missing → 零依赖 SVG 兜底'); return; }
+    mm = window.mermaid;
+    mm.initialize({ startOnLoad:false, theme:'neutral', flowchart:{ curve:'basis', htmlLabels:true }, securityLevel:'loose' });
+    mermaidReady = true;
+    console.log('mermaid initialized, version=' + mm.version || '');
+  }catch(e){ console.warn('mermaid init fail → SVG 兜底:', e.message); }
+})();
+let mmId=0;
+function renderMermaid(container, code){
+  if(!mermaidReady || !mm){ return false; }
+  try{
+    const id='mm'+(++mmId);
+    container.innerHTML = '<pre class="mermaid" id="'+id+'"></pre>';
+    document.getElementById(id).textContent = code;
+    mm.render(id, code).then(res=>{ if(res&&res.svg){ container.innerHTML=res.svg; applyZoom(1); } }, err=>{ console.warn('mermaid render fail:',err); });
+    return true;
+  }catch(e){ console.warn('mermaid render throw:',e.message); return false; }
+}
+let MM_ZOOM=1; const MM_WRAP=document.getElementById('ov-mmview');
+function applyZoom(z){ MM_ZOOM=z; const svg=MM_WRAP.querySelector('svg'); if(!svg) return; svg.style.width='auto'; svg.style.height='auto'; svg.style.transform='scale('+z+')'; svg.style.transformOrigin='center center'; }
+document.querySelectorAll('#ov-mmbtns .btn').forEach(b=>{ b.onclick=()=>{ const a=b.dataset.act; if(a==='zoom-in')applyZoom(Math.min(2,MM_ZOOM+0.2)); else if(a==='zoom-out')applyZoom(Math.max(0.4,MM_ZOOM-0.2)); else if(a==='zoom-reset'){applyZoom(1);} else if(a==='view-src'){ document.getElementById('ov-mm').scrollIntoView({behavior:'smooth'}); } }; });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOv();});
 init();
 </script>
