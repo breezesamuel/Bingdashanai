@@ -95,12 +95,18 @@ async function init(){
     const r=await fetch('/v1/partner-recruit/referral-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,invitedBy:REF})});
     const j=await r.json();
     document.getElementById('result').innerHTML=j.ok
-      ? '✅ 已登记 <b>'+esc(j.partnerName||name)+'</b>，专属招募码：<span class="mono">'+esc(j.code)+'</span><br>用法：'+esc(j.howToUse||'')+'<br>'+esc(j.compliance||'')
+      ? ('✅ 已登记 <b>'+esc(j.partnerName||name)+'</b>，专属招募码：<span class="mono">'+esc(j.code)+'</span><br>'
+        + '你的专属招募链接（发给真实客户/朋友圈/社群，带上的成交才分给你）：<br>'
+        + '<span class="mono" id="share-link" style="display:inline-block;word-break:break-all;background:#eef5f1;padding:4px 8px;border-radius:6px;margin:6px 0">'+esc(shareUrl(j.code))+'</span><br>'
+        + '<button class="cta" id="share-copy" style="padding:8px 16px;font-size:13px">📋 复制专属链接</button><br>'
+        + '用法：'+esc(j.howToUse||'')+'<br>'+esc(j.compliance||''))
       : '⚠ ' + esc(j.error||'失败');
+    if(j.ok){ const cb=document.getElementById('share-copy'); if(cb){ cb.onclick=async()=>{ try{ await navigator.clipboard.writeText(shareUrl(j.code)); cb.textContent='✅ 已复制，可直接粘贴分享'; setTimeout(()=>{cb.textContent='📋 复制专属链接';},2500);}catch(e){ const el=document.getElementById('share-link'); if(el){ window.getSelection().selectNode(el); document.execCommand('copy'); cb.textContent='已选中，Ctrl+C 复制'; } } } }; }
   };
 }
 function kpi(label,val){return '<div class="kpi"><b>'+val+'</b><span>'+label+'</span></div>'}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function shareUrl(code){return location.origin+'/partner.html?ref='+encodeURIComponent(String(code||''));}
 if(REF){ document.getElementById('ref-banner').style.display='block'; document.getElementById('ref-code').textContent=REF; }
 (async()=>{ try{ const f=await (await fetch('/v1/partner-recruit/funnel')).json(); if(f&&f.ok){ document.getElementById('funnel').innerHTML=(f.stages||[]).map(s=>kpi(s.step,s.n)).join(''); document.getElementById('funnel-honest').textContent=f.honesty||''; } }catch(e){} })();
 init();
