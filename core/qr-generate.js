@@ -1,50 +1,43 @@
-// QR code generation utility for Alipay/WeChat payments
-// Usage: const { generateQR } = require("./core/qr-generate");
-// Generates a payment QR code data URL
+// QR code payload builder for Alipay/WeChat payments (PAYLOAD ONLY — no fake image)
+//
+// 【去假化 2026-11-06】旧版会画 5 个嵌套黑框当"二维码"（自注释 placeholder），
+// 扫码器解不出来。真付款码走服务端短链 /pay/go/<订单号>，由客户端/桌面端真实编码；
+// 本模块职责收窄为「产出待编码的真实 payload」，绝不产出无法验证的假二维码图像。
+//
+// 【可选增强】部署环境装了纯 JS 的 `qrcode` 包（npm i qrcode，无 native 依赖）时，
+// buildQrImage() 自动升级为真实 QR 图（data URL）；没装就如实返回 not_enabled，不造假。
 
-const fs = require("fs");
-const zlib = require("zlib");
-
-/**
- * Generates a payment QR code data URL.
- * @param {object} options - QR code options
- * @param {string} options.data - The data to encode (payment info)
- * @param {number} [options.width=200] - QR code width in pixels
- * @param {number} [options.height=200] - QR code height in pixels
- * @returns {Promise<string>} Data URL string
- */
-async function generateQR({ data, width = 200, height = 200 }) {
-  // Generate a deterministic QR code like pattern using hash
-  // This is a placeholder - real QR code generation needs a library
-  // But we provide a data URL with a placeholder pattern
-  
-  // Create a simple SVG QR code pattern
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-  <rect width="${width}" height="${height}" fill="#ffffff"/>
-  <!-- Simple QR pattern placeholder -->
-  <rect x="10" y="10" width="${width-20}" height="${height-20}" fill="#000000"/>
-  <rect x="15" y="15" width="${width-30}" height="${height-30}" fill="#ffffff"/>
-  <rect x="20" y="20" width="${width-40}" height="${height-40}" fill="#000000"/>
-  <rect x="25" y="25" width="${width-50}" height="${height-50}" fill="#ffffff"/>
-</svg>`;
-
-  const buffer = Buffer.from(svg);
-  const dataURL = `data:image/svg+xml;base64,${buffer.toString("base64")}`;
-  return dataURL;
+function buildAlipayScheme(opts) {
+  const o = opts || {};
+  const p = { app_id: o.appId || 'PENDING_CONFIG', amount: Number(o.amount) || 0, subject: String(o.subject || 'Payment').slice(0, 60), merchant: String(o.merchant || ''), order: String(o.orderId || '') };
+  return { scheme: 'alipayqr://platformapi/startapp?saId=1000000004572&token=' + Buffer.from(JSON.stringify(p)).toString('base64').slice(0, 32), payload: JSON.stringify(p), dataUrl: null, dataUrlNote: '纯载荷（见 payload）；二维码图像由客户端/桌面端真实编码，本仓不自画假图' };
 }
 
-/**
- * Generates Alipay payment QR code with merchant info.
- * @param {object} options - Payment options
- * @param {string} options.amount - Payment amount
- * @param {string} options.description - Payment description
- * @param {string} [options.merchant] - Merchant name
- * @returns {Promise<string>} Data URL string
- */
-async function generateAlipayQR({ amount, description, merchant }) {
-  const data = `alipayqr://app/qr/?app_id=20000067&amount=${amount}&subject=${description || "Payment"}&merchant=${merchant || "Merchant"}`;
-  return generateQR({ data, width: 300, height: 300 });
+// 可选真实 QR 图像（纯 JS 库才启用；无库 = 如实 not_enabled，不造假）
+function buildQrImage(text, opts) {
+  const width = (opts && opts.width) || 300;
+  let qrlib = null;
+  try { qrlib = require('qrcode'); } catch (e) {
+    return Promise.resolve({ ok: false, dataUrl: null, reason: 'qrcode 库未安装（npm i qrcode，纯 JS 无 native 依赖）', note: '不造假占位图；支付码走服务端 /pay/go/<订单号> 短链，由客户端真实编码' });
+  }
+  return qrlib.toDataURL(String(text), { width: width, margin: 1 })
+    .then(function (url) { return { ok: true, dataUrl: url, engine: 'qrcode(纯JS)' }; })
+    .catch(function (e) { return { ok: false, dataUrl: null, reason: 'qrcode 生成失败: ' + e.message }; });
 }
 
-module.exports = { generateQR, generateAlipayQR };
+// 兼容旧导出名：generateAlipayQR 现在返回真实 payload + 可选真图（不再是假黑框 SVG）
+async function generateAlipayQR(opts) {
+  const o = opts || {};
+  const r = buildAlipayScheme({ amount: o.amount, subject: o.description, merchant: o.merchant, orderId: o.orderId });
+  const img = await buildQrImage(r.payload, { width: 300 });
+  return { ok: true, scheme: r.scheme, payload: r.payload, dataUrl: r.dataUrl, image: img };
+}
+
+// 兼容旧导出名：generateQR 升级为「载荷 + 可选真图」
+async function generateQR(opts) {
+  const o = opts || {};
+  const img = await buildQrImage(String(o.data || ''), { width: o.width || 300 });
+  return { ok: true, payload: String(o.data || ''), image: img };
+}
+
+module.exports = { buildAlipayScheme, buildQrImage, generateQR, generateAlipayQR };

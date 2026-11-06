@@ -711,8 +711,13 @@ const CAPS = [
     run() {
       const a = require('./qr-generate');
       const b = require('./qr-crop');
-      return '二维码：生成 ' + JSON.stringify(a.list ? a.list() : {}).slice(0, 200)
-        + ' · 裁剪 ' + JSON.stringify(b.list ? b.list() : {}).slice(0, 200);
+      // 【去假 2026-11-06】旧版调 a.list()/b.list()（都不存在）→ 永远输出 "{}·{}"（看板有、实际空的假大空）。
+      // 现如实上报真实能力：buildAlipayScheme（同步真载荷）+ buildQrImage（可选纯JS真图）+ cropQR（真解析图片头）。
+      const payload = a.buildAlipayScheme({ amount: 1, subject: '示例', merchant: '示例商家', orderId: 'DEMO' });
+      return '二维码能力：alipayScheme=' + (!!payload.scheme ? '可用(真载荷,客户端编码)' : '不可用') +
+        ' · 真图=' + (a.buildQrImage ? '可选(qrcode纯JS,未装则如实not_enabled)' : '无') +
+        ' · 裁剪=' + (b.readImageDims ? '真解析PNG/JPEG/GIF/BMP/WebP头' : '无') +
+        ' · 红线：无 qrcode 库时不自画假占位图（不造假）。';
     }
   },
   // ---------- 系统设置中枢（第 7 条）----------

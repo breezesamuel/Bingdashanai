@@ -363,6 +363,15 @@ setInterval(() => {
     broadcastOrca({ board, pulse });
   } catch (e) { }
 }, 5000);
+// 【去孤岛 2026-11-06】monitor.checkAndAlert() 真实周期调用点：每 5 分钟扫一次
+// 实收/证据/目标偏离/触达异常/闭环推进 5 类告警。未配 monitorWebhookUrl 时 push() 如实
+// 返回 no_webhook_url（不打注定失败的请求）；配上真实 webhook 即自动恢复推送。
+// 设 MONITOR_DISABLED=1 可临时停用（回滚开关）。
+if (process.env.MONITOR_DISABLED !== '1') {
+  bootlock.interval(() => {
+    try { require('./core/monitor').checkAndAlert().catch(function () { }); } catch (e) { }
+  }, 5 * 60 * 1000);
+}
 
 // 服务端→客户端文本帧编码。升级后对端发来的帧只需消费不必解析（仅心跳/关断）。
 // 服务端发出的帧按 RFC 6455 无需掩码。
@@ -4343,6 +4352,24 @@ async function handle(req, res) {
   }
   if (p === '/v1/subs/order' && req.method === 'POST') {
     const b = await readBody(req);
+    // 【去孤岛 2026-11-06】delivery-spec.screen() 前置筛查闸（拒单=产品功能，非失败）。
+    // 仅当 body 带了 goal/firstMoney/deadline/success/scope 中 ≥2 个定制需求字段才触发；
+    // 普通订阅单（不带定制字段）直接放行，不影响付费漏斗。命中 HARD_STOPS → 如实拒单告知改法。
+    const customFields = {};
+    if (b.goal) customFields.goal = b.goal;
+    if (b.firstMoney) customFields.firstMoney = b.firstMoney;
+    if (b.deadline) customFields.deadline = b.deadline;
+    if (b.success) customFields.success = b.success;
+    if (b.scope) customFields.scope = b.scope;
+    if (Object.keys(customFields).length >= 2) {
+      try {
+        const ds = require('./core/delivery-spec');
+        const scr = ds.screen(customFields);
+        if (scr && scr.ok && scr.pass === false) {
+          return json(res, 200, { ok: false, reason: 'screened_rejected', note: '交付筛查闸：当前需求暂不可验收（拒单是产品功能）', stops: scr.stopped, next: scr.next });
+        }
+      } catch (e) { /* delivery-spec 加载失败不挡付费漏斗 */ }
+    }
     const r = subs.order(canonKey(b.key) || visitorOf(req, q, res), String(b.plan || 'm'), b.lang, clientIp(req), b.email);
     return json(res, 200, r);
   }
@@ -4767,9 +4794,9 @@ async function handle(req, res) {
   if (p === '/v1/pay/alipay/notify' && req.method === 'POST') {
     // 支付宝异步通知：验签 → 校验币种/金额 → 幂等入账开通。回包必须是**纯文本 success**，
     // 否则支付宝判定失败并持续重推（返回 JSON 会被当成失败）。
-    // 【为什么加 try/catch】验签/解析遇到畸形报文可能抛错；抛出去会让本函数 500，
-    // 但更糟的是——同文件尾部还留着一份返回 JSON 的旧处理器，一旦本块被改动/跳过，
-    // 就会被那份接住并回错格式。此处就地兜住，统一回 fail 让支付宝重推。
+    // 【为什么加 try/catch】验签/解析遇畸形报文可能抛错→本函数 500；就地兜住，统一回 fail 让支付宝重推。
+    // 【2026-11-06 更正】旧注释提"尾部还留一份返回 JSON 的旧处理器"——经全仓 grep 证实该旧处理器已不存在
+    // （alipay/notify 仅此一处 POST 处理器，见下方 L4767），此段为历史残留注释，无实际双处理器风险。
     // 【限流】微信/ Moltspay 的通知都有按 IP 限流，唯独这里此前没有：公网任何人
     // 都能 POST 垃圾报文，每个请求都触发一次 RSA 验签（CPU 作业），可持续放大。
     // 阈值放到 120/分（支付宝重推是低频的，正常业务量远达不到），回 429 让它稍后重推。

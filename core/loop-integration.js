@@ -141,6 +141,15 @@ async function integrate() {
     commercialLoop: updateCommercialLoop(),
     optimization: optimizeConversion()
   };
+  // 【去孤岛 2026-11-06】monitor.checkAndAlert() 此前零调用方（死代码）。
+  // 挂进 integrate()：实收/证据/目标偏离/触达异常/闭环推进 5 类告警自动推 webhook；
+  // 未配 monitorWebhookUrl 时 push() 如实返回 no_webhook_url（不造假、无副作用）。
+  try {
+    const mon = require('./monitor');
+    results.monitor = await mon.checkAndAlert();
+  } catch (e) {
+    results.monitor = { ok: false, error: e.message }; // 告警挂了不影响主集成流
+  }
   return results;
 }
 
