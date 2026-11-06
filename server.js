@@ -1123,6 +1123,16 @@ async function handle(req, res) {
     try { return json(res, 200, partnerRecruit ? partnerRecruit.recruitLanding() : { ok: false, error: 'partner-recruit 未加载' }); }
     catch (e) { return err(res, 200, e.message); }
   }
+  // ===== 招募飞轮：漏斗聚合 + 落地页访问计数（真实计数，不造数）=====
+  if (p === '/v1/partner-recruit/funnel' && req.method === 'GET') {
+    try { return json(res, 200, partnerRecruit ? partnerRecruit.funnel() : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/partner-recruit/visit' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, partnerRecruit ? partnerRecruit.landVisit(String(b.ref || ''), { channel: String(b.channel || 'direct') }) : { ok: false, error: 'partner-recruit 未加载' }); }
+    catch (e) { return err(res, 200, e.message); }
+  }
   if (p === '/v1/partner-recruit/referral-code' && req.method === 'POST') {
     const b = await readBody(req);
     try { return json(res, 200, partnerRecruit ? partnerRecruit.issueReferralCode(String(b.name || '')) : { ok: false, error: 'partner-recruit 未加载' }); }

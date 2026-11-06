@@ -86,6 +86,7 @@ function enroll(body) {
   const db = store.read();
   const exist = (db.partners || []).find(p => p.name === name);
   if (exist) return { ok: true, partner: exist, existed: true, note: '已存在，未重复创建' };
+  const invitedBy = String((body && body.invitedBy) || '').trim().slice(0, 24); // 飞轮追踪：直接推荐人（单层·不产生多层计酬）
   const rec = store.push('partners', {
     name,
     contact: String((body && body.contact) || '').slice(0, 60),
@@ -94,8 +95,16 @@ function enroll(body) {
     status: 'active',
     paidOut: 0,      // 累计已付
     earned: 0,       // 累计已确认应得
+    invitedBy,
     entryFee: 0      // 恒为 0：合规字段，用于审计"未收任何入门费"
   }, '合伙人登记（零门槛·无入门费）', name);
+  // 飞轮·招募码核销：invitedBy 命中某枚 referralCode 就记 usedBy+1（发放≠成交，只记"被使用"）
+  if (invitedBy) {
+    const db2 = store.read(); const codeRec = (db2.referralCodes || []).find(c => c.code === invitedBy);
+    if (codeRec) { store.update('referralCodes', codeRec.id, { usedBy: (codeRec.usedBy || 0) + 1, status: 'used', lastUsedAt: Date.now() }, '招募码核销（被邀请人登记）');
+      store.push('audit', { action: '飞轮·招募码核销', detail: '码 ' + invitedBy + ' 带来合伙人 ' + name + '（invitedBy 记档，单层）', at: Date.now() }, null, null); }
+    else store.push('audit', { action: '飞轮·推荐人登记', detail: name + ' invitedBy=' + invitedBy + '（未命中已发码，可能手工邀请）', at: Date.now() }, null, null);
+  }
   store.push('audit', { action: '合规校验·合伙人注册', detail: name + '：entryFee=0（未收入门费，合法）', at: Date.now() }, null, null);
   return { ok: true, partner: rec };
 }

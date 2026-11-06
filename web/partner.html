@@ -24,6 +24,7 @@ ul{margin:0;padding-left:20px}li{margin:8px 0}
 </head>
 <body>
 <div class="hero">
+  <p id="ref-banner" style="display:none;background:rgba(255,255,255,.15);border-radius:10px;padding:8px 14px;margin:0 auto 12px;max-width:640px;font-size:13px">🔗 你由推荐码 <b id="ref-code"></b> 带入——登记时自动关联该合伙人（单层·不产生多层计酬）</p>
   <h1 id="headline">合伙人招募</h1>
   <p id="intro">把「丙大山AI」带进你的客户群，成交才有分润</p>
 </div>
@@ -51,7 +52,12 @@ ul{margin:0;padding-left:20px}li{margin:8px 0}
   </div>
 
   <div class="card">
-    <h2>如何加入</h2>
+  <div class="card" id="funnel-card">
+    <h2>招募飞轮（真实漏斗 · 当前计数）</h2>
+    <div class="grid2" id="funnel"></div>
+    <p class="foot" id="funnel-honest"></p>
+  </div>
+      <h2>如何加入</h2>
     <p>注册即成合伙人（<b>零门槛、不收一分钱</b>），系统自动发你专属招募码；把你的人带来成交，分润归你（<b>只认你直接服务的那笔真实成交</b>，绝不向下层层抽成）。</p>
     <button class="cta" id="cta">登记成为合伙人 + 领专属招募码</button>
     <div id="result" style="margin-top:12px;font-size:14px"></div>
@@ -61,7 +67,9 @@ ul{margin:0;padding-left:20px}li{margin:8px 0}
   <p class="foot" id="compliance">合规红线（写进代码）：《禁止传销条例》第七条 —— 零入门费 · 单层封顶 · 锚定真实成交。分润只来自真实成交，平台按阶梯抽成。</p>
 </div>
 <script>
+var REF = decodeURIComponent((location.search.match(/[?&]ref=([^&]+)/) || [])[1] || '');
 async function init(){
+  try{ await fetch('/v1/partner-recruit/visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref:REF,channel:REF?'ref':'direct'})}); }catch(e){}
   let board=null, land=null, plan=null;
   try{ const r=await fetch('/v1/partner-recruit/board'); board=await r.json(); }catch(e){}
   try{ const l=await fetch('/v1/partner-recruit/landing'); land=await l.json(); }catch(e){}
@@ -84,7 +92,7 @@ async function init(){
   document.getElementById('cta').onclick=async()=>{
     const name=prompt('你的合伙人名称（真实名字，用于登记）：','');
     if(!name) return;
-    const r=await fetch('/v1/partner-recruit/referral-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const r=await fetch('/v1/partner-recruit/referral-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,invitedBy:REF})});
     const j=await r.json();
     document.getElementById('result').innerHTML=j.ok
       ? '✅ 已登记 <b>'+esc(j.partnerName||name)+'</b>，专属招募码：<span class="mono">'+esc(j.code)+'</span><br>用法：'+esc(j.howToUse||'')+'<br>'+esc(j.compliance||'')
@@ -93,6 +101,8 @@ async function init(){
 }
 function kpi(label,val){return '<div class="kpi"><b>'+val+'</b><span>'+label+'</span></div>'}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+if(REF){ document.getElementById('ref-banner').style.display='block'; document.getElementById('ref-code').textContent=REF; }
+(async()=>{ try{ const f=await (await fetch('/v1/partner-recruit/funnel')).json(); if(f&&f.ok){ document.getElementById('funnel').innerHTML=(f.stages||[]).map(s=>kpi(s.step,s.n)).join(''); document.getElementById('funnel-honest').textContent=f.honesty||''; } }catch(e){} })();
 init();
 </script>
 </body>

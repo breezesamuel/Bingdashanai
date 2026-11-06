@@ -106,4 +106,36 @@ function targetPlan() {
   };
 }
 
-module.exports = { recruitBoard, issueReferralCode, recruitLanding, targetPlan, partners };
+// 落地页访问计数（真实口径：只记访问，不编转化；带 ref 可归因到某枚招募码/渠道）
+function landVisit(ref, opt) {
+  ref = String(ref || '').trim().slice(0, 24);
+  const rec = { at: Date.now(), ref, channel: String((opt && opt.channel) || 'direct').slice(0, 20) };
+  try { store.push('partnerLandingVisits', rec, '招募落地页访问', ref ? ('ref=' + ref) : 'direct'); } catch (e) {}
+  return { ok: true, visit: rec, note: '访问已记档（真实计数，非预估）' };
+}
+// 飞轮漏斗（全真实计数，缺一环如实为 0，不脑补）
+function funnel() {
+  const db = store.read();
+  const codes = (db.referralCodes || []);
+  const used = codes.filter(c => c.usedBy > 0 || c.status === 'used');
+  const visits = (db.partnerLandingVisits || []).length;
+  const withRef = (db.partnerLandingVisits || []).filter(v => v.ref).length;
+  const partners = (db.partners || []).map(p => ({ id: p.id, invitedBy: p.invitedBy || '' }));
+  const invited = partners.filter(p => p.invitedBy).length;
+  const board = recruitBoard();
+  return {
+    ok: true, at: Date.now(), issued: codes.length, used: used.length,
+    landingVisits: visits, withRef,
+    partners: partners.length, invited: invited,
+    withDelivery: board.withDelivery, withAccepted: board.withAccepted, totalEarned: board.totalEarned,
+    stages: [
+      { step: '码发放', n: codes.length }, { step: '落地页访问', n: visits },
+      { step: '合伙人登记', n: partners.length }, { step: '带推荐人', n: invited },
+      { step: '有交付', n: board.withDelivery }, { step: '已验收分润', n: board.withAccepted },
+      { step: '累计分润(¥)', n: board.totalEarned }
+    ],
+    honesty: '全真实计数；任一环节为 0 = 飞轮还没转起来（不造数据）' + (codes.length === 0 ? '；当前 0 枚码，先真实发放+引流量。' : ''),
+    compliance: board.compliance
+  };
+}
+module.exports = { landVisit, funnel, recruitBoard, issueReferralCode, recruitLanding, targetPlan, partners };
