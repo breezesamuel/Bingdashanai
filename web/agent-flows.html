@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>丙大山 Agent · 可视化流程（23 条）</title>
+<style>
+:root{--ink:#104e41;--ink2:#5b7d72;--line:#0e7a5a;--bg:#fbfdfc;--amber:#b45309;--card:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#1f2937;font:14px/1.55 system-ui,'Noto Sans SC',sans-serif}
+header{padding:20px 28px;background:linear-gradient(135deg,#104e41,#0e7a5a);color:#fff}
+header h1{margin:0;font-size:20px}header p{margin:6px 0 0;font-size:12px;color:#bfe3d8}
+.wrap{padding:18px 28px;max-width:1240px;margin:0 auto}
+#master{overflow-x:auto;background:#fff;border:1px solid #d7e6e0;border-radius:12px;padding:8px}
+#master svg{width:100%;height:auto}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+.tab{border:1px solid #cfe3db;background:#fff;border-radius:20px;padding:6px 14px;cursor:pointer;font-size:13px}
+.tab.on{background:var(--line);color:#fff;border-color:var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:#fff;border:1px solid #d7e6e0;border-radius:12px;padding:14px;cursor:pointer;transition:.15s}
+.card:hover{border-color:var(--line);box-shadow:0 4px 16px rgba(14,122,90,.12)}
+.card .tag{font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px}
+.card h3{margin:4px 0;font-size:15px;color:var(--ink)}
+.card p{margin:6px 0 0;font-size:12px;color:#374151;min-height:34px}
+.card .meta{margin-top:8px;font-size:11px;color:var(--ink2)}
+#ov{position:fixed;inset:0;background:rgba(16,78,65,.55);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+#ov.show{display:flex}
+#ov .box{background:#fff;border-radius:14px;max-width:1000px;max-height:92vh;overflow:auto;width:100%}
+#ov .hd{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #d7e6e0;position:sticky;top:0;background:#fff}
+#ov .hd h2{margin:0;font-size:16px;color:var(--ink)}#ov .hd .x{cursor:pointer;font-size:20px;color:var(--ink2);border:none;background:none}
+#ov .body{padding:16px 18px}
+#ov .svgwrap{overflow-x:auto;border:1px solid #e5efe9;border-radius:10px;background:var(--bg);padding:8px;margin-bottom:14px}
+#ov .svgwrap svg{min-width:680px}
+#ov .mm{width:100%;min-height:180px;font:12px/1.5 ui-monospace,Consolas,monospace;background:#0f1f1a;color:#9fe6c8;border-radius:10px;padding:14px;white-space:pre}
+.btn{border:1px solid var(--line);background:var(--line);color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px}
+.btn.ghost{background:#fff;color:var(--line)}
+.note{font-size:11px;color:var(--ink2);margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>丙大山 Agent · 可视化流程（23 条）</h1>
+  <p>借鉴 skill-flow-visualizer / transit / mermaid-skill 范式 · JSON IR → Mermaid 源码 + 零依赖 SVG · 每节点=真实模块/函数（core/ 44/44 核实）</p>
+</header>
+<div class="wrap">
+  <div id="master"><div class="note">加载地铁图总览…</div></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="grid" id="grid"><div class="note">加载流程…</div></div>
+</div>
+<div id="ov"><div class="box">
+  <div class="hd"><h2 id="ov-t">流程</h2><button class="x" onclick="closeOv()">×</button></div>
+  <div class="body">
+    <div class="svgwrap" id="ov-svg"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="btn ghost" onclick="copyMM()">复制 Mermaid 源码</span><span class="note">拷进 mermaid.live / 任意渲染器即出图；flowchart 类已给内联 SVG</span></div>
+    <pre class="mm" id="ov-mm"></pre>
+  </div>
+</div></div>
+<script>
+let DATA=null;
+async function init(){
+  const r=await fetch('/v1/agent-flows');const b=await r.json();DATA=b;
+  document.getElementById('master').innerHTML=b.svg;
+  const cats=[{id:'all',label:'全部 '+b.count}].concat(b.byCategory.map(c=>({id:c.cat,label:c.label+' '+c.n})));
+  const tabs=document.getElementById('tabs');
+  cats.forEach(c=>{const el=document.createElement('span');el.className='tab'+(c.id==='all'?' on':'');el.textContent=c.label;el.dataset.cat=c.id;
+    el.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');renderGrid(c.id==='all'?null:c.id);};
+    tabs.appendChild(el);});
+  renderGrid(null);
+}
+function renderGrid(cat){
+  const g=document.getElementById('grid');g.innerHTML='';
+  DATA.flows.filter(f=>!cat||f.cat===cat).forEach(f=>{
+    const c=document.createElement('div');c.className='card';
+    c.innerHTML='<div class="tag">'+f.id+'</div><h3>'+f.label+'</h3><p>'+f.desc+'</p><div class="meta">'+f.nodes+' 节点 · '+f.edges+' 边 · '+(f.type==='seq'?'时序':'流程')+' · '+DATA.categories[f.cat]+'</div>';
+    c.onclick=()=>openOv(f.id);g.appendChild(c);});
+}
+async function openOv(id){
+  const r=await fetch('/v1/agent-flows/render?id='+encodeURIComponent(id));const j=await r.json();
+  document.getElementById('ov-t').textContent=j.flow.label+'（'+j.flow.id+'）';
+  document.getElementById('ov-svg').innerHTML=j.svg?'<div class="note" style="padding:4px 8px">'+j.flow.desc+'</div>'+j.svg:'<div class="note">'+j.svgNote+'</div>';
+  document.getElementById('ov-mm').textContent='```mermaid\n'+j.mermaid+'\n```';
+  document.getElementById('ov').classList.add('show');
+}
+function closeOv(){document.getElementById('ov').classList.remove('show');}
+function copyMM(){navigator.clipboard.writeText(document.getElementById('ov-mm').textContent).then(()=>{}).catch(()=>{});}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOv();});
+init();
+</script>
+</body>
+</html>

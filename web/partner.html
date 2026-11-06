@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>丙大山AI · 合伙人招募</title>
+<style>
+:root{--ink:#104e41;--line:#0e7a5a;--bg:#fbfdfc;--amber:#b45309;--mut:#5b7d72}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#1f2937;font:15px/1.6 system-ui,'Noto Sans SC',sans-serif}
+.hero{background:linear-gradient(135deg,#104e41,#0e7a5a);color:#fff;padding:40px 28px;text-align:center}
+.hero h1{margin:0;font-size:26px}.hero p{margin:10px 0 0;color:#bfe3d8;max-width:640px;margin:auto}
+.wrap{max-width:900px;margin:0 auto;padding:24px}
+.badge{display:inline-block;background:#fff7ed;color:var(--amber);border:1px solid #f5c88a;border-radius:20px;padding:4px 14px;font-size:13px;margin:4px}
+.card{background:#fff;border:1px solid #d7e6e0;border-radius:14px;padding:22px;margin:16px 0}
+.card h2{margin:0 0 12px;color:var(--ink);font-size:19px}
+ul{margin:0;padding-left:20px}li{margin:8px 0}
+.mono{font-family:ui-monospace,Consolas,monospace;background:#f1f5f4;border-radius:8px;padding:3px 8px;font-size:14px;color:var(--ink)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.kpi{background:#fff;border:1px solid #d7e6e0;border-radius:12px;padding:16px;text-align:center}
+.kpi b{display:block;font-size:30px;color:var(--line);margin-bottom:4px}.kpi span{font-size:12px;color:var(--mut)}
+.cta{background:var(--line);color:#fff;border:none;border-radius:12px;padding:14px 22px;font-size:15px;cursor:pointer}
+.foot{color:var(--mut);font-size:12px;margin:24px 0;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1 id="headline">合伙人招募</h1>
+  <p id="intro">把「丙大山AI」带进你的客户群，成交才有分润</p>
+</div>
+<div class="wrap">
+  <div class="card" style="border:none;background:transparent;padding:8px">
+    <span class="badge">零门槛 · 零入门费</span><span class="badge">单层分润</span><span class="badge">锚定真实成交</span><span class="badge">无层层计提（不碰传销线）</span>
+  </div>
+
+  <div class="grid2" id="kpis"></div>
+
+  <div class="card">
+    <h2>凭什么靠谱（说清口径，不吹"1000 人躺赚"）</h2>
+    <ul id="points"></ul>
+  </div>
+
+  <div class="card">
+    <h2>当前招募漏斗（真实计数，非计划数）</h2>
+    <div class="grid2" id="board"></div>
+  </div>
+
+  <div class="card">
+    <h2>达标 1000 的运营拆解（是计划，不是已发生的数据）</h2>
+    <ul id="plan"></ul>
+    <p class="foot" id="honest"></p>
+  </div>
+
+  <div class="card">
+    <h2>如何加入</h2>
+    <p>注册即成合伙人（<b>零门槛、不收一分钱</b>），系统自动发你专属招募码；把你的人带来成交，分润归你（<b>只认你直接服务的那笔真实成交</b>，绝不向下层层抽成）。</p>
+    <button class="cta" id="cta">登记成为合伙人 + 领专属招募码</button>
+    <div id="result" style="margin-top:12px;font-size:14px"></div>
+    <p class="foot">招募码 = 额度，≠ 成交。数量是招募的结果，不是能填的数字；每枚码只在他带的人真实成交后才产生分润。</p>
+  </div>
+
+  <p class="foot" id="compliance">合规红线（写进代码）：《禁止传销条例》第七条 —— 零入门费 · 单层封顶 · 锚定真实成交。分润只来自真实成交，平台按阶梯抽成。</p>
+</div>
+<script>
+async function init(){
+  let board=null, land=null, plan=null;
+  try{ const r=await fetch('/v1/partner-recruit/board'); board=await r.json(); }catch(e){}
+  try{ const l=await fetch('/v1/partner-recruit/landing'); land=await l.json(); }catch(e){}
+  // 注：board 路由只回 recruitBoard；landing/plan 走 landing 路由 + 前端再算
+  if(land && land.ok!==false){ document.getElementById('headline').textContent=land.headline||document.getElementById('headline').textContent;
+    document.getElementById('intro').textContent='把「丙大山AI」带进你的客户群，成交才有分润';
+    document.getElementById('points').innerHTML=(land.points||[]).map(p=>'<li>'+esc(p)+'</li>').join('');
+    document.getElementById('compliance').textContent=land.compliance||document.getElementById('compliance').textContent;
+  }
+  if(board && board.ok!==false){
+    const b=board;
+    const codes=[];
+    document.getElementById('board').innerHTML=
+      kpi('已登记合伙人', b.enrolled)+'<div style="grid-column:1/-1"></div>'
+      +kpi('其中 active', b.active)+kpi('有交付', b.withDelivery)+kpi('已分润(人)', b.withAccepted);
+    document.getElementById('compliance').textContent='合规红线（写进代码）：《禁止传销条例》第七条 —— 零入门费 · 单层封顶 · 锚定真实成交。平台抽成 '+b.platformPct+'% / 合伙人 '+b.partnerPct+'%。1000 是招募目标（现差 '+(b.to1000?b.to1000.gap:'?')+'），需真实带单的人逐个登记。';
+  if(b.plan){ document.getElementById('plan').innerHTML=(b.plan.plan||[]).map(x=>'<li>'+esc(x)+'</li>').join(''); document.getElementById('honest').textContent='产能假设：每周可触达 '+b.plan.weekly+' 人，现差 '+(b.to1000?b.to1000.gap:b.plan.gap)+' → 约 '+b.plan.weeks+' 周（这是运营计划，不是已发生的数据）。'+b.plan.honesty; }
+  }
+  // CTA：调 referral-code（真实登记 + 发码）
+  document.getElementById('cta').onclick=async()=>{
+    const name=prompt('你的合伙人名称（真实名字，用于登记）：','');
+    if(!name) return;
+    const r=await fetch('/v1/partner-recruit/referral-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const j=await r.json();
+    document.getElementById('result').innerHTML=j.ok
+      ? '✅ 已登记 <b>'+esc(j.partnerName||name)+'</b>，专属招募码：<span class="mono">'+esc(j.code)+'</span><br>用法：'+esc(j.howToUse||'')+'<br>'+esc(j.compliance||'')
+      : '⚠ ' + esc(j.error||'失败');
+  };
+}
+function kpi(label,val){return '<div class="kpi"><b>'+val+'</b><span>'+label+'</span></div>'}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+init();
+</script>
+</body>
+</html>

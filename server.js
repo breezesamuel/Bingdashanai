@@ -1114,8 +1114,10 @@ async function handle(req, res) {
     catch (e) { return err(res, 200, e.message); }
   }
   if (p === '/v1/partner-recruit/board' && req.method === 'GET') {
-    try { return json(res, 200, partnerRecruit ? partnerRecruit.recruitBoard() : { ok: false, error: 'partner-recruit 未加载' }); }
-    catch (e) { return err(res, 200, e.message); }
+    try {
+      if (!partnerRecruit) return json(res, 200, { ok: false, error: 'partner-recruit 未加载' });
+      return json(res, 200, Object.assign({}, partnerRecruit.recruitBoard(), { plan: partnerRecruit.targetPlan() }));
+    } catch (e) { return err(res, 200, e.message); }
   }
   if (p === '/v1/partner-recruit/landing' && req.method === 'GET') {
     try { return json(res, 200, partnerRecruit ? partnerRecruit.recruitLanding() : { ok: false, error: 'partner-recruit 未加载' }); }
@@ -2821,6 +2823,17 @@ async function handle(req, res) {
   // ===== 全量商业闭环总览（聚合 8 段管道 + 11 运营模块 + 台账体检，只读不编数）=====
   if (p === '/v1/business-loop' && req.method === 'GET') {
     try { return json(res, 200, require('./core/business-loop').board()); } catch (e) { return err(res, 200, e.message); }
+  }
+  // ===== Agent 可视化流程（借鉴 skill-flow-visualizer/transit/mermaid-skill 范式·零依赖 SVG + Mermaid 源码）=====
+  if (p === '/v1/agent-flows' && req.method === 'GET') {
+    try { return json(res, 200, require('./core/agent-flows').board()); } catch (e) { return err(res, 200, e.message); }
+  }
+  if (p === '/v1/agent-flows/render' && req.method === 'GET') {
+    try {
+      const fid = (q.get('id') || '').trim();
+      if (!fid) return json(res, 400, { ok: false, error: 'id 必填：?id=' + require('./core/agent-flows').FLOWS.map(x => x.id).join(',') });
+      return json(res, 200, require('./core/agent-flows').render(fid));
+    } catch (e) { return err(res, 200, e.message); }
   }
   // ===== 技能·收录（动态外部模块写入 db）=====
   if (p === '/v1/skills/inject' && req.method === 'POST') {
