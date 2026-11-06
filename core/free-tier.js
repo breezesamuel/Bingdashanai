@@ -85,7 +85,25 @@ const REGISTRY = [
   { id: 'ollama-local', name: 'Ollama 本地（无需 Key）', env: 'OLLAMA_LOCAL_KEY', base: 'http://127.0.0.1:11434/v1',
     signup: 'https://ollama.com/download', note: '本机 Ollama：零成本、零网络、零泄露；装了 Ollama 即自动可用',
     rpm: 999, rpd: 999999, discover: true, local: true,
-    models: ['llama3.2', 'qwen2.5:7b', 'gemma2:9b', 'phi3.5'] }
+    models: ['llama3.2', 'qwen2.5:7b', 'gemma2:9b', 'phi3.5'] },
+
+  // —— 扩展官方免费/体验额度（全部 Operator 自配 Key，走 hasKey 闸口；不接任何第三方免 Key 中继/薅号渠道）——
+  // 未配 Key 的通道 hasKey=false → 自动剔除；paid=true 表示无长期免费档（付费/偶尔体验），作降级通道。
+  { id: 'deepseek', name: 'DeepSeek（官方 OpenAI 兼容）', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1',
+    signup: 'https://platform.deepseek.com/', note: 'DeepSeek 官方 API；无长期免费档（偶尔体验额度），作低档降级', rpm: 60, rpd: null, discover: true, paid: true,
+    models: ['deepseek-chat', 'deepseek-reasoner'] },
+  { id: 'kimi', name: 'Kimi · Moonshot（官方 OpenAI 兼容）', env: 'MOONSHOT_API_KEY', base: 'https://api.moonshot.cn/v1',
+    signup: 'https://platform.moonshot.cn/', note: '月之暗面 Kimi；新账号官方试用额度，OpenAI 兼容', rpm: 30, rpd: 300, discover: true,
+    models: ['kimi-latest', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'] },
+  { id: 'dashscope', name: 'Qwen · 百炼（阿里云 DashScope）', env: 'DASHSCOPE_API_KEY', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    signup: 'https://dashscope.aliyun.com/', note: '通义千问百炼；新账号官方免费 token 额度，OpenAI 兼容 compatible-mode', rpm: 60, rpd: 2000, discover: true,
+    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'] },
+  { id: 'grok', name: 'Grok · xAI（官方 OpenAI 兼容）', env: 'XAI_API_KEY', base: 'https://api.x.ai/v1',
+    signup: 'https://console.x.ai/', note: 'xAI Grok；控制台免费档，OpenAI 兼容', rpm: 30, rpd: 500, discover: true,
+    models: ['grok-3', 'grok-2', 'grok-2-1212'] },
+  { id: 'claude', name: 'Claude · Anthropic（官方 Messages 协议）', env: 'ANTHROPIC_API_KEY', base: 'https://api.anthropic.com/v1',
+    signup: 'https://console.anthropic.com/', note: 'Anthropic Claude；官方无免费档（付费 API），Messages 协议（非 OpenAI 兼容），作低档降级', rpm: 20, rpd: null, discover: true, anthropic: true, paid: true,
+    models: ['claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest'] }
 ];
 
 // 任务分级 → 优先模型族（简单启发式：名字含大参数/旗舰词优先给强档）
@@ -313,35 +331,62 @@ async function callOnce(id, opts) {
   let base = p.base.includes('{ACCOUNT}')
     ? p.base.replace('{ACCOUNT}', process.env.CLOUDFLARE_ACCOUNT_ID || (() => { try { return providers.loadEnv().CLOUDFLARE_ACCOUNT_ID || ''; } catch (e) { return ''; } })())
     : p.base;
-  const url = base.replace(/\/$/, '') + '/chat/completions';
-
+  const urlBase = base.replace(/\/$/, '');
   const started = Date.now();
   const wantTier = (opts && opts.tier) || 2;
   let model = opts && opts.model;
   if (!model) model = pickModel(id, wantTier);
   if (!model) throw new Error(p.name + ' 无可用模型');
 
-  const body = {
-    model,
-    messages: (opts.messages || []).map(m => ({ role: m.role, content: m.content })),
-    temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.7,
-    stream: false
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify(body),
-    signal: timeout((opts && opts.timeoutMs) || 60000)
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    const e = new Error(p.name + ' 返回 ' + res.status + '：' + String(t).slice(0, 160));
-    e.status = res.status;
-    throw e;
+  let res, content;
+  if (p.anthropic) {
+    // Claude Messages 协议（非 OpenAI 兼容）：system 拆出，解析 content 文本块
+    const msgs = (opts.messages || []);
+    const system = msgs.filter(m => m.role === 'system').map(m => m.content).join('\n');
+    const user = msgs.filter(m => m.role !== 'system');
+    const body = {
+      model,
+      system: system || undefined,
+      messages: user.map(m => ({ role: m.role, content: m.content })),
+      max_tokens: 2048,
+      temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.7
+    };
+    res = await fetch(urlBase + '/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
+      signal: timeout((opts && opts.timeoutMs) || 60000)
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      const e = new Error(p.name + ' 返回 ' + res.status + '：' + String(t).slice(0, 160));
+      e.status = res.status;
+      throw e;
+    }
+    const ja = await res.json();
+    content = Array.isArray(ja && ja.content) ? (ja.content.map(c => c && c.text).filter(Boolean).join('') || '') : '';
+  } else {
+    const body = {
+      model,
+      messages: (opts.messages || []).map(m => ({ role: m.role, content: m.content })),
+      temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.7,
+      stream: false
+    };
+    res = await fetch(urlBase + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify(body),
+      signal: timeout((opts && opts.timeoutMs) || 60000)
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      const e = new Error(p.name + ' 返回 ' + res.status + '：' + String(t).slice(0, 160));
+      e.status = res.status;
+      throw e;
+    }
+    const j = await res.json();
+    content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
   }
-  const j = await res.json();
-  const content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
   if (!content) throw new Error(p.name + ' 返回空内容');
 
   const elapsed = Date.now() - started;
@@ -460,7 +505,42 @@ async function refreshAll() {
 // 语义化别名（server.js 里读起来更顺）
 const consumeFreeGrant = (vid) => consumeGrant(vid);
 
-module.exports = {
+// ══════════ 每日额度体检（合规形态的"自动接力"：只在你自配的各平台官方 Key 之间轮换）══════════
+// 诚实：remainingToday 是本地滚动窗口近似（无服务商侧日计数器），真实配额以服务商后台为准；
+// 计划=建议顺序，不自动执行，也不去薅第三方免 Key 通道。
+function dailyHealth() {
+  const now = Date.now();
+  const dk = dayKey(now), mk = minuteKey(now);
+  const s = loadState();
+  const rows = REGISTRY.map(p => {
+    const st = s.providers[p.id] || {};
+    const q = st.quota || {};
+    const usedToday = q[dk] || 0, usedMinute = q[mk] || 0;
+    const hasKey = hasImpl(p.id);
+    const cooling = (st.cooldownUntil || 0) > now;
+    const usable = hasKey && !cooling && quotaOk(p, st, now);
+    const remainingToday = p.rpd ? Math.max(0, p.rpd - usedToday) : null;
+    return { id: p.id, name: p.name, hasKey, paid: !!p.paid, local: !!p.local, models: modelsOf(p.id).length,
+      usedToday, usedMinute, remainingToday, rpm: p.rpm || null, rpd: p.rpd || null,
+      cooling, usable, lastError: st.lastError || '', latencyMs: Math.round(st.latencyEMA || 0) };
+  });
+  const freeRank = x => (x && !x.paid) ? 0 : 1;
+  const plan = rows.filter(r => r.usable).map(r => ({ id: r.id, name: r.name, remainingToday: r.remainingToday, latencyMs: r.latencyMs }))
+    .sort((a, b) => {
+      const rp = REGISTRY.find(x => x.id === a.id), rq = REGISTRY.find(x => x.id === b.id);
+      if (freeRank(rp) !== freeRank(rq)) return freeRank(rp) - freeRank(rq);   // 免费档优先于付费降级
+      return score(a.id, 2) - score(b.id, 2);                                    // 同档按评分
+    });
+  return {
+    ok: true, at: now, day: new Date(now).toDateString(),
+    total: rows.length, withKey: rows.filter(r => r.hasKey).length, usableNow: rows.filter(r => r.usable).length,
+    channels: rows, plan,
+    note: '盘点你**自配的各平台官方 Key** 的本地滚动额度估算 + 建议接力顺序；未配 Key 的通道 hasKey=false 自动剔除。',
+    honesty: '只做 Operator 自配官方 Key 之间的健康轮换（这是合法的"接力"）；不做第三方免 Key 中继、不薅账号、不跨平台偷接力他人额度。remainingToday 为本地近似。'
+  };
+}
+
+module.exports = { dailyHealth,
   REGISTRY, list, available, status, chat, candidates, health, modelsOf, discover, refreshAll,
   grant: consumeFreeGrant, grantStatus, consumeGrant,
   _internal: { score, quotaOk, loadState }
