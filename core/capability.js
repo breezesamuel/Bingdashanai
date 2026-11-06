@@ -818,6 +818,35 @@ const CAPS = [
       const dyn = (store.read().adoptedCaps || []).length;
       return '本系统可被对话调用的能力共 ' + list.length + ' 项（内置 ' + c.CAPS.length + ' + 动态装载 ' + (list.length - c.CAPS.length) + '）：\n' + list.join(' · ');
     }
+  },
+  {
+    id: 'cap.maturity', name: '能力成熟度自检', kw: ['成熟度', '哪些能力稳定', '降级', '能力等级', '哪些功能可用', '成熟度自检'],
+    run() {
+      const M = require('./maturity');
+      const r = M.report();
+      const rows = r.rows.map(x => '  ' + (x.label || x.section) + ' [' + x.maturity + '] 用7d=' + x.usage7d + ' 故障24h=' + x.faults24h).join('\n');
+      const sug = r.suggestions.length ? r.suggestions.map(s => '  建议 ' + s.section + ': ' + s.current + '→' + s.suggested + (s.reason ? '（' + s.reason + '）' : '')).join('\n') : '  （无变更建议）';
+      return '能力成熟度自检（分区 ' + r.rows.length + '）：\n' + rows + '\n升降级建议：\n' + sug + '\n说明：' + r.note;
+    }
+  },
+  {
+    id: 'cap.dataqsql', name: '自然语言问数据', kw: ['查数据', '问一下数据', '数据看板', '有哪些表', '数据字段', '问数据', '数据里有什么'],
+    run() {
+      const D = require('./dataq-sql');
+      const b = D.board();
+      const cols = b.collections.map(c => '  ' + c.collection + '（' + c.rows + ' 行 · ' + c.fields.length + ' 字段）').join('\n');
+      return '数据查询面板：共 ' + b.collections.length + ' 个集合可读\n' + cols + '\n说明：' + b.howto + '\n安全：' + b.safety + '\n诚实：' + b.honesty;
+    }
+  },
+  {
+    id: 'cap.workflow16', name: '全链路工作流轮次状态', kw: ['工作流', '自动化轮次', '全链路', '16流', '跑一轮', '工作流状态', '自动化有没有在跑'],
+    run() {
+      const W = require('./workflow16');
+      const s = W.status();
+      const last = s.last ? ('最近一轮 ' + s.last.roundId + '：ok=' + (s.last.ok ? '是' : '否') + ' 通过=' + s.last.pass + ' 失败=' + s.last.fail + ' 用时=' + s.last.totalDur + 'ms') : '（尚无轮次记录）';
+      const hist = s.history.slice(0, 8).map(h => '  #' + h.roundId + ' ' + (h.ok ? 'OK' : 'FAIL') + ' ' + h.pass + '/' + h.fail + ' ' + h.dur + 'ms').join('\n');
+      return '16 流全链路编排器：间隔 ' + s.intervalMs + 'ms · 当前轮次 ' + s.roundId + '\n' + last + '\n最近轮次：\n' + (hist || '  （无）') + '\n说明：每流≤2s、全轮≤30s，失败记证据不阻断。';
+    }
   }
 ];
 

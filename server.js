@@ -373,6 +373,16 @@ if (process.env.MONITOR_DISABLED !== '1') {
   }, 5 * 60 * 1000);
 }
 
+// 【去孤岛/数据安全 2026-11-06】进程内 shard 回填定时器：每 5 分钟 syncFromShards 刷新 native 回滚点。
+// 背景：Aliyun 外部 cron（shard-backfill.sh）因 cron 服务 inactive + cron 极简 PATH 无 node 从未真正跑，
+//       导致 reconcile 漂回红、30s 回滚网失效。此定时器跑在活 node 进程里，零依赖 cron/PATH。
+// 只在显式切读（BINGDASHAN_STORE_ENGINE=shard）时启用；native 引擎零行为变化；BINGDASHAN_BACKFILL_DISABLED=1 可回滚停用。
+if (process.env.BINGDASHAN_STORE_ENGINE === 'shard' && process.env.BINGDASHAN_BACKFILL_DISABLED !== '1') {
+  bootlock.interval(() => {
+    try { require('./core/shard-migrate').syncFromShards(); } catch (e) { }
+  }, 5 * 60 * 1000);
+}
+
 // 服务端→客户端文本帧编码。升级后对端发来的帧只需消费不必解析（仅心跳/关断）。
 // 服务端发出的帧按 RFC 6455 无需掩码。
 function wsFrame(payload) {

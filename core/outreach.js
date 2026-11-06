@@ -484,4 +484,4 @@ function status() {
   };
 }
 
-module.exports = { runOnce, ingestReply, sendTest, sendEmail, sendVerificationCode, setKeys, mute, status, configMasked, smtpSend, compose, resolveContact, transport, sendRaw, DEFAULTS, OPT_OUT, SERVICE_RE };
+module.exports = { runOnce, ingestReply, sendTest, sendEmail, sendVerificationCode, setKeys, mute, status, configMasked, smtpSend, compose, resolveContact, transport, sendRaw, webhookSend, DEFAULTS, OPT_OUT, SERVICE_RE };
